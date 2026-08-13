@@ -1,0 +1,436 @@
+"""外脑伙伴 Agent 主控编排
+
+数据流（规格一）：用户输入 → 任务-框架生成引擎 →（画像 + 记忆上下文）
+→ 提问/方案 → 交互界面 → 反馈 → 记忆与进化系统。
+
+规格 4.4：四阶段切分（需求澄清/框架草案/内容填充/成品交付），
+阶段结束暂停询问；放弃点记录；断点续传；动力保鲜。
+规格 5.2：每次方案后收集 1-5 分评分反馈。
+规格 5.3：查看画像 / 调整画像命令。
+规格 5.4：模糊输入、连续拒绝、冲突提醒、历史任务查看。
+"""
+
+from __future__ import annotations
+
+import re
+from datetime import datetime, timezone
+from pathlib import Path
+from uuid import uuid4
+
+from .interaction import ConsoleInterface
+from .llm import LangChainAdapter
+from .memory import EpisodicMemory, LongTermMemory, MemoryEvolutionSystem, WorkingMemory
+from .profile import ProfileSystem
+from .task_engine import INTENT_LABELS, TaskFrameworkEngine, TaskSpec
+
+
+STAGE_LABELS = ("需求澄清", "框架草案", "内容填充", "成品交付")
+STAGE_PLAN = (("框架草案", "framework"), ("内容填充", "full"), ("成品交付", "final"))
+QUICK_ACCEPT = {"好", "行", "可以", "不错", "ok", "OK", "Ok"}
+CONFIRM_WORDS = {"对", "是", "确认", "嗯", "对呀"}
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+class PersonalExplorerAgent:
+    def __init__(
+        self,
+        storage_dir: str = "waibao_data",
+        interface: ConsoleInterface | None = None,
+        llm: LangChainAdapter | None = None,
+    ) -> None:
+        self.storage_dir = Path(storage_dir)
+        self.llm = llm or LangChainAdapter()
+        self.interface = interface or ConsoleInterface()
+
+        self.profile = ProfileSystem()
+        self.ltm = LongTermMemory(self.storage_dir)
+        self.wm = WorkingMemory()
+        self.episodic = EpisodicMemory(self.storage_dir)
+        self.evolution = MemoryEvolutionSystem(self.ltm, self.episodic, self.storage_dir)
+
+        self._load_persistent_state()
+        self.interface.profile_provider = lambda: self.profile.profile
+        self.engine = TaskFrameworkEngine(
+            profile=self.profile,
+            episodic=self.episodic,
+            interface=self.interface,
+            llm=self.llm,
+        )
+        self.resume_offered_for: str | None = None
+
+    # ---- 持久化 -------------------------------------------------------
+    def _load_persistent_state(self) -> None:
+        self.ltm.load()
+        if self.ltm.get_field("cognition.thinking_macro_first"):
+            self.profile.from_flat(self.ltm.all_fields())
+            # 规格 4.3：时间衰减（>30 天未更新的字段回退 10%）
+            if self.profile.apply_time_decay():
+                self.evolution.save_profile(self.profile)
+        self.episodic.load()
+
+    # ---- 命令入口（规格 5.3 / 5.4） ------------------------------------
+    def handle(self, text: str) -> None:
+        t = text.strip()
+        if t == "查看画像":
+            self.interface.show(self.profile.summary())
+        elif t == "查看历史":
+            self._show_history()
+        elif t == "调整画像":
+            self._adjust_profile()
+        elif t == "接着做":
+            unfinished = self.episodic.find_unfinished()
+            if unfinished:
+                self._resume_last_task(unfinished)
+            else:
+                self.interface.show("没有找到暂停中的任务。")
+        else:
+            self.start_new_task(t)
+
+    # ---- 画像初始化（规格 2.2） ----------------------------------------
+    def ensure_profile_initialized(self) -> bool:
+        if self.ltm.profile_initialized():
+            return False
+        answers = self.interface.ask_initial(self.profile.init_questions())
+        self.profile.apply_initial_answers(answers)
+        self.evolution.save_profile(self.profile, mark_initialized=True)
+        self.interface.show("画像初始化完成，说说你想做什么吧。")
+        return True
+
+    # ---- 新任务主流程（规格 4.4 阶段切分） ------------------------------
+    def start_new_task(self, raw_input: str) -> str:
+        unfinished = self.episodic.find_unfinished()
+        if unfinished and self.resume_offered_for != unfinished.get("task_id"):
+            self.resume_offered_for = unfinished.get("task_id")
+            reply = self.interface.ask_resume(self._resume_message(unfinished))
+            if reply == "接着做":
+                self._resume_last_task(unfinished)
+                return "resumed"
+            # 用户选择开启新任务 → 旧任务标记为 abandoned（规格 4.4）
+            self._archive_abandoned(unfinished, "用户选择开启新任务")
+
+        intent = self.engine.parse(raw_input)
+        task_id = uuid4().hex[:8]
+        self.wm.start(task_id, intent)
+        self.wm.data["start_time"] = _now()
+
+        # 需求澄清 + 规格确认（阶段一）
+        spec = self.engine.run_confirmation(intent)
+        self.wm.set_spec(spec)
+
+        # 冲突提醒（规格 5.4）
+        conflict_choice = self._check_conflict(spec)
+
+        satisfaction: int | None = None
+        for stage_label, stage_key in STAGE_PLAN:
+            text = self.engine.generate(spec, stage_key, conflict_choice)
+            self._show_solution(text)
+            fb = self.interface.collect_feedback()
+            self._handle_feedback(fb, spec)
+            score = self._parse_score(fb)
+            if score:
+                satisfaction = score
+            if self._is_pause(fb):
+                return self._pause_task(spec, stage_label, fb, text)
+            if self._is_done(fb):
+                return self._complete_task(spec, satisfaction)
+            if stage_label != "成品交付" and not self._wants_continue(fb):
+                return self._pause_task(spec, stage_label, fb, text)
+        return self._complete_task(spec, satisfaction)
+
+    # ---- 断点续传（规格 4.4） ------------------------------------------
+    def _resume_message(self, ep: dict) -> str:
+        stage = ep.get("paused_at_stage", "需求澄清")
+        last_user = (ep.get("abandon_point") or {}).get("last_user_message", "没有记录")
+        suggestion = self._resume_suggestion()
+        return (
+            f"我们上次在「{stage}」阶段停下来了，你当时觉得「{last_user}」。要接着做吗？\n"
+            f"我可以从那里继续，并且我建议这次用「{suggestion}」方式避免同样的问题。\n"
+            "回复「接着做」继续，回复「新任务」重新开始。"
+        )
+
+    def _resume_suggestion(self) -> str:
+        p = self.profile.profile
+        if p["collaboration"]["abandon_after_first_draft"] > 0.7:
+            return "短小预览版，逐段确认"
+        if p["collaboration"]["followup_tolerance"] < 0.5:
+            return "尽量少提问，直接给草案"
+        return "保持分段节奏，每阶段只推进一小步"
+
+    def _resume_last_task(self, ep: dict) -> None:
+        details = dict(ep.get("confirmed_details", {}))
+        spec = TaskSpec(
+            goal=ep["task_goal"],
+            intent_type=ep["intent_type"],
+            domain=ep["domain"],
+            confirmed_details=details,
+            assumptions=["断点续传：从上次暂停处继续"],
+            output_format=details.get("output_format", "框架/大纲"),
+        )
+        self.wm.start(ep["task_id"], None)
+        self.wm.data["start_time"] = _now()
+        self.wm.set_spec(spec)
+
+        paused = ep.get("paused_at_stage", "框架草案")
+        try:
+            start_index = STAGE_LABELS.index(paused)
+        except ValueError:
+            start_index = 1
+        satisfaction: int | None = None
+        for stage_label, stage_key in STAGE_PLAN[start_index:]:
+            text = self.engine.generate(spec, stage_key)
+            self._show_solution(text)
+            fb = self.interface.collect_feedback()
+            self._handle_feedback(fb, spec)
+            score = self._parse_score(fb)
+            if score:
+                satisfaction = score
+            if self._is_pause(fb):
+                self.episodic.update_episode(
+                    ep["task_id"],
+                    paused_at_stage=stage_label,
+                    abandon_point={
+                        "stage": stage_label,
+                        "last_user_message": fb,
+                        "last_ai_message": text[:200],
+                        "inferred_reason": self._infer_abandon_reason(fb),
+                    },
+                )
+                return
+            if self._is_done(fb) or (stage_label != "成品交付" and not self._wants_continue(fb)):
+                self.episodic.update_episode(ep["task_id"], status="completed", end_time=_now(), user_satisfaction=satisfaction)
+                self.interface.show("任务已完成 ✅")
+                self.evolution.task_completed()
+                self.evolution.save_profile(self.profile)
+                return
+
+        self.episodic.update_episode(
+            ep["task_id"],
+            status="completed",
+            end_time=_now(),
+            user_satisfaction=satisfaction,
+            full_delivered=True,
+            used_framework=self.engine.last_framework,
+            confirmed_details=spec.confirmed_details,
+        )
+        self.evolution.task_completed()
+        self.evolution.save_profile(self.profile)
+        self._maybe_calibrate()
+        self.interface.show("任务已完成 ✅")
+
+    # ---- 反馈处理（规格 4.3 / 5.2） ------------------------------------
+    def _handle_feedback(self, text: str, spec: TaskSpec) -> None:
+        if not text:
+            return
+        records = self.profile.apply_explicit_rules(text)
+        changed = False
+        for rec in records:
+            if rec.get("before") == rec.get("after"):
+                continue
+            changed = True
+            self.interface.show(f"已记住：{rec['reason']}（{rec['field']} {rec['before']} → {rec['after']}）")
+            if self.profile.needs_anomaly_confirmation(rec):
+                reply = self.interface.ask_anomaly(
+                    f"我注意到你最近似乎更偏向调整「{rec['field']}」了，对吗？\n"
+                    "回复「对」确认，否则我会回退这次调整。"
+                )
+                if reply.strip() not in CONFIRM_WORDS:
+                    reverted = self.profile.revert_record(rec)
+                    self.interface.show(f"已回退：{reverted['field']} → {reverted['after']}")
+        if changed:
+            self.evolution.save_profile(self.profile)
+            return
+
+        # 隐式信号
+        score = self._parse_score(text)
+        if text.strip() in QUICK_ACCEPT or (score is not None and score >= 4):
+            relevant = [
+                ("cognition", "thinking_macro_first"),
+                ("cognition", "detail_assist_needed"),
+                ("expression", "structure_density"),
+                ("expression", "abstraction_level"),
+                ("expression", "example_preference"),
+                ("collaboration", "abandon_after_first_draft"),
+            ]
+            self.profile.apply_implicit("quick_acceptance", fields=relevant)
+            self.evolution.save_profile(self.profile)
+        elif "又" in text or "重复" in text:
+            self.profile.apply_implicit("repeated_question", note=text[:40])
+            self.evolution.save_profile(self.profile)
+
+    @staticmethod
+    def _parse_score(text: str) -> int | None:
+        m = re.search(r"([1-5])\s*分", text)
+        if m:
+            return int(m.group(1))
+        if text.strip() in {"1", "2", "3", "4", "5"}:
+            return int(text.strip())
+        return None
+
+    @staticmethod
+    def _is_pause(text: str) -> bool:
+        return any(w in text for w in ["先这样", "暂停", "先到这", "不做了", "算了", "先放着"])
+
+    @staticmethod
+    def _is_done(text: str) -> bool:
+        return any(w in text for w in ["完成", "够了", "不用了", "就这些", "可以了"])
+
+    @staticmethod
+    def _wants_continue(text: str) -> bool:
+        return (
+            "继续" in text
+            or text.strip() in QUICK_ACCEPT
+            or PersonalExplorerAgent._parse_score(text) is not None
+        )
+
+    # ---- 阶段收尾 -----------------------------------------------------
+    def _show_solution(self, text: str) -> None:
+        text = text + "\n\n此方案匹配度如何？可直接回复：1-5 分，或指出需要调整的地方。"
+        self.interface.show(self.interface.style(text))
+
+    def _pause_task(self, spec: TaskSpec, stage_label: str, last_user: str, last_ai: str) -> str:
+        episode = self._base_episode(spec, status="paused")
+        episode.update({
+            "paused_at_stage": stage_label,
+            "abandon_point": {
+                "stage": stage_label,
+                "last_user_message": last_user,
+                "last_ai_message": last_ai[:200],
+                "inferred_reason": self._infer_abandon_reason(last_user),
+            },
+            "end_time": _now(),
+        })
+        self.episodic.add(episode)
+        self.evolution.save_profile(self.profile)
+        self.interface.show(f"好的，任务已暂停在「{stage_label}」阶段。下次说「接着做」，我会从这里继续。")
+        return "paused"
+
+    def _complete_task(self, spec: TaskSpec, satisfaction: int | None) -> str:
+        episode = self._base_episode(spec, status="completed")
+        episode.update({
+            "end_time": _now(),
+            "user_satisfaction": satisfaction,
+            "full_delivered": True,
+            "used_framework": self.engine.last_framework,
+        })
+        self.episodic.add(episode)
+        self.evolution.task_completed()
+        self.evolution.save_profile(self.profile)
+        self._maybe_calibrate()
+        self.interface.show("任务已完成 ✅")
+        return "completed"
+
+    def _base_episode(self, spec: TaskSpec, status: str) -> dict:
+        return {
+            "task_id": self.wm.data.get("task_id") or uuid4().hex[:8],
+            "task_goal": spec.goal[:120],
+            "intent_type": spec.intent_type,
+            "domain": spec.domain,
+            "start_time": self.wm.data.get("start_time") or _now(),
+            "end_time": None,
+            "status": status,
+            "abandon_point": None,
+            "interaction_log": [],
+            "user_feedback": [],
+            "used_framework": self.engine.last_framework,
+            "user_satisfaction": None,
+            "confirmed_details": spec.confirmed_details,
+            "full_delivered": False,
+        }
+
+    @staticmethod
+    def _infer_abandon_reason(last_user: str) -> str:
+        if any(w in last_user for w in ["先这样", "算了", "不做了"]):
+            return "动力不足/中途暂停"
+        if "不知道" in last_user or "随便" in last_user:
+            return "信息不足，难以继续"
+        return "用户主动暂停"
+
+    def _archive_abandoned(self, ep: dict, reason: str) -> None:
+        self.episodic.update_episode(
+            ep["task_id"],
+            status="abandoned",
+            end_time=_now(),
+            abandon_point={
+                "stage": ep.get("paused_at_stage", "需求澄清"),
+                "last_user_message": (ep.get("abandon_point") or {}).get("last_user_message", ""),
+                "last_ai_message": (ep.get("abandon_point") or {}).get("last_ai_message", ""),
+                "inferred_reason": reason,
+            },
+        )
+
+    # ---- 冲突提醒（规格 5.4） ------------------------------------------
+    def _check_conflict(self, spec: TaskSpec) -> str:
+        conflict_kw = ["营销", "广告", "推广", "带货", "卖点"]
+        red_lines = self.profile.profile.get("value_red_lines", [])
+        if any(k in spec.goal for k in conflict_kw) and any(("套话" in rl) or ("营销" in rl) for rl in red_lines):
+            reply = self.interface.ask_conflict(
+                "⚠️ 我注意到你要的内容（营销/广告类）和你画像里「讨厌套话、营销味」有冲突。\n"
+                "1) 按你的要求写营销内容\n"
+                "2) 按你的画像优化：保持直接、具体、不用套话"
+            )
+            if "2" in reply or "画像" in reply:
+                return "按画像优化"
+            return "按你的要求"
+        return ""
+
+    # ---- 画像查看/调整（规格 5.3） -------------------------------------
+    def _adjust_profile(self) -> None:
+        self.interface.show(
+            "可调整字段示例：expression.output_tone（formal/casual/neutral）、"
+            "expression.structure_density、cognition.thinking_macro_first、"
+            "collaboration.followup_tolerance 等。"
+        )
+        field = self.interface.ask_raw("字段名：")
+        value_text = self.interface.ask_raw("新值：")
+        value = self._coerce(value_text)
+        rec = self.profile.update_field(field, value)
+        if rec:
+            self.interface.show(f"已更新：{rec['field']} → {rec['after']}")
+            self.evolution.save_profile(self.profile)
+        else:
+            self.interface.show("没找到这个字段，请用「维度.字段」格式再试一次。")
+
+    @staticmethod
+    def _coerce(text: str):
+        low = text.strip().lower()
+        if low in {"true", "false"}:
+            return low == "true"
+        try:
+            return int(text)
+        except ValueError:
+            pass
+        try:
+            return float(text)
+        except ValueError:
+            return text
+
+    def _show_history(self) -> None:
+        episodes = self.episodic.all_episodes()
+        if not episodes:
+            self.interface.show("还没有历史任务。")
+            return
+        lines = ["📚 历史任务"]
+        for ep in reversed(episodes[-10:]):
+            satisfaction = ep.get("user_satisfaction")
+            sat = f" | 评分 {satisfaction}" if satisfaction else ""
+            lines.append(
+                f"- #{ep['task_id']} [{ep.get('status')}] "
+                f"{INTENT_LABELS.get(ep.get('intent_type'), ep.get('intent_type'))} / {ep.get('domain')}："
+                f"{ep.get('task_goal', '')[:36]}{sat}"
+            )
+        self.interface.show("\n".join(lines))
+
+    # ---- 主动校准（规格 2.3） ------------------------------------------
+    def _maybe_calibrate(self) -> None:
+        if not self.evolution.needs_calibration():
+            return
+        report = self.profile.calibration_report()
+        reply = self.interface.ask_calibration(report)
+        accepted = reply.strip() in QUICK_ACCEPT or reply.strip() in {"确认", "没问题"}
+        self.interface.show(self.profile.confirm_calibration(accepted))
+        if accepted:
+            self.evolution.after_calibration()
+        self.evolution.save_profile(self.profile)

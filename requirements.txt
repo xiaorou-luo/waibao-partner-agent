@@ -1,0 +1,6 @@
+# 最小原型零依赖即可运行（python3 demo.py）
+# 如需接入 LangChain / OpenAI，取消注释并安装：
+# langchain>=0.1
+# langchain-openai
+# openai
+

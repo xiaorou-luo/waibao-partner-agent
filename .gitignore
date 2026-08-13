@@ -1,0 +1,4 @@
+__pycache__/
+demo_data/
+waibao_data/
+*.pyc
