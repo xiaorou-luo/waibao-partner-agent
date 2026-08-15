@@ -381,7 +381,7 @@ class SolutionGenerator:
     ) -> tuple[str, dict[str, list[str]]]:
         if self.llm and getattr(self.llm, "enabled", False):
             try:
-                return self.llm.generate(spec, profile, stage), self._framework(spec)
+                return self.llm.generate(spec, profile, stage, conflict_choice), self._framework(spec)
             except NotImplementedError:
                 pass
 
@@ -472,4 +472,3 @@ class TaskFrameworkEngine:
         text, framework = SolutionGenerator(self.llm).generate(spec, self.profile, stage, conflict_choice)
         self.last_framework = framework
         return text
-

@@ -66,17 +66,32 @@ python3 chat.py    # 真人在终端交互（记忆持久化到 waibao_data/）
 - ✅ 完整任务流程演示（demo.py）
 - ✅ 画像更新演示（反馈修改字段）
 
-## 接 LLM（LangChain 可选）
+## 接真实 LLM（OpenAI / DeepSeek 兼容接口）
 
-当前方案生成由规则引擎完成，保证无 API Key 也能跑。要接入真实大模型：
+方案生成默认由规则引擎完成，保证无 Key 也能跑。要换成真实大模型，
+只需设置环境变量（零第三方依赖，用标准库直接调兼容接口）：
 
 ```bash
-pip install langchain langchain-openai openai
+export LLM_PROVIDER=deepseek            # 或 openai
+export LLM_API_KEY=你的密钥
+# 可选：export LLM_MODEL=deepseek-chat   # 覆盖默认模型
+
+python3 chat.py                         # 此时会自动启用真实 LLM
 ```
 
-在 `waibao/llm.py` 的 `LangChainAdapter.generate()` 中实现 prompt 模板
-（把 `spec` 任务规格书和 `profile` 画像快照组装成提示词），
-然后 `PersonalExplorerAgent(llm=LangChainAdapter(enabled=True))`。
+也可以在代码里显式传入：
+
+```python
+from waibao.llm import LLMAdapter
+from waibao.agent import PersonalExplorerAgent
+
+llm = LLMAdapter(provider="deepseek", api_key="sk-...", enabled=True)
+agent = PersonalExplorerAgent(storage_dir="waibao_data", llm=llm)
+```
+
+`LLMAdapter` 会把用户画像快照、任务规格书、交付阶段和画像约束一起组装进
+prompt（宏观先行、结构化、少举例、红线规避、分段交付等），
+未配置 Key 或 `enabled=False` 时自动回退规则引擎。
 
 ## 托管到 GitHub
 
@@ -103,4 +118,3 @@ git push -u origin main
 ```
 
 仓库内置 `.github/workflows/demo.yml`：每次 push 自动跑 `python3 demo.py` 冒烟测试。
-

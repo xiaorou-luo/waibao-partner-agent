@@ -18,7 +18,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from .interaction import ConsoleInterface
-from .llm import LangChainAdapter
+from .llm import LLMAdapter
 from .memory import EpisodicMemory, LongTermMemory, MemoryEvolutionSystem, WorkingMemory
 from .profile import ProfileSystem
 from .task_engine import INTENT_LABELS, TaskFrameworkEngine, TaskSpec
@@ -39,10 +39,10 @@ class PersonalExplorerAgent:
         self,
         storage_dir: str = "waibao_data",
         interface: ConsoleInterface | None = None,
-        llm: LangChainAdapter | None = None,
+        llm: LLMAdapter | None = None,
     ) -> None:
         self.storage_dir = Path(storage_dir)
-        self.llm = llm or LangChainAdapter()
+        self.llm = llm or LLMAdapter()
         self.interface = interface or ConsoleInterface()
 
         self.profile = ProfileSystem()

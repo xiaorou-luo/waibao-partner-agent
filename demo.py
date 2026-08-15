@@ -17,6 +17,7 @@ from pathlib import Path
 
 from waibao.agent import PersonalExplorerAgent
 from waibao.interaction import ConsoleInterface
+from waibao.llm import LLMAdapter
 
 
 def main() -> None:
@@ -54,7 +55,8 @@ def main() -> None:
     ])
 
     interface = ConsoleInterface(input_fn=lambda prompt: script.popleft())
-    agent = PersonalExplorerAgent(storage_dir=demo_dir, interface=interface)
+    # demo 固定用规则引擎，保证无 Key 也能跑、结果可预期（CI 冒烟测试同样如此）
+    agent = PersonalExplorerAgent(storage_dir=demo_dir, interface=interface, llm=LLMAdapter(enabled=False))
 
     print("=" * 64)
     print("步骤 1/6：画像初始化")
@@ -95,4 +97,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -11,6 +11,10 @@ from waibao.agent import PersonalExplorerAgent
 
 def main() -> None:
     agent = PersonalExplorerAgent(storage_dir="waibao_data")
+    if agent.llm.enabled:
+        print(f"已启用真实 LLM：{agent.llm.provider} / {agent.llm.model}")
+    else:
+        print("未配置 LLM API Key，当前使用内置规则引擎（设置 LLM_API_KEY 环境变量即可启用）")
     agent.ensure_profile_initialized()
     print("\n可以告诉我你想做什么了（输入 exit 退出；支持 查看画像 / 调整画像 / 查看历史 / 接着做）：")
     while True:
@@ -26,4 +30,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
