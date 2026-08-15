@@ -101,6 +101,35 @@ _INIT_MAPPING: dict[str, dict[str, Tuple[str, str, Any]]] = {
     },
 }
 
+# 自由回答 → 选项 的关键词兜底（未启用 LLM 时使用）
+_KEYWORD_HINTS: dict[str, dict[str, list[str]]] = {
+    "macro_or_detail": {
+        "直接给框架": ["框架", "整体", "宏观", "先给", "直接"],
+        "先讨论细节": ["细节", "讨论", "先聊", "慢慢"],
+        "都可以": ["都行", "随便", "你定", "看你"],
+    },
+    "music_role": {
+        "制作": ["制作", "创作", "写歌", "编曲", "录"],
+        "产业": ["产业", "行业", "经营", "厂牌", "经纪"],
+        "理论": ["理论", "学术", "研究", "乐理"],
+    },
+    "tone": {
+        "正式": ["正式", "专业", "严肃"],
+        "随意": ["随意", "轻松", "口语", "聊"],
+        "中性": ["中性", "都行", "正常", "平衡"],
+    },
+    "draft_habit": {
+        "马上使用": ["马上用", "直接用", "不改", "上手"],
+        "继续修改": ["修改", "继续改", "打磨", "完善"],
+        "看情况": ["看情况", "不一定", "视情况"],
+    },
+    "examples": {
+        "不需要": ["不需要", "不用", "别举", "不要例", "少举", "不举"],
+        "需要": ["需要", "要例子", "给个例", "要举"],
+        "偶尔": ["偶尔", "有时候", "一点"],
+    },
+}
+
 
 # ---------------------------------------------------------------------------
 # 显式反馈规则（规格 4.3）：(正则, 字段路径, target, 说明)
@@ -162,13 +191,41 @@ class ProfileSystem:
     def init_questions(self) -> list[dict[str, Any]]:
         return copy.deepcopy(INIT_QUESTIONS)
 
-    def apply_initial_answers(self, answers: dict[str, str]) -> None:
+    def apply_initial_answers(self, answers: dict[str, str], llm: Any = None) -> None:
+        """把（可能是自由的）回答理解成画像字段。
+
+        依次尝试：精确选项 → 包含选项 → LLM 理解 → 关键词兜底。
+        """
+        qmap = {q["id"]: q for q in INIT_QUESTIONS}
         for qid, answer in answers.items():
+            q = qmap.get(qid)
+            if not q:
+                continue
+            options = q["options"]
+            matched = answer if answer in options else ""
+            if not matched:
+                for opt in options:
+                    if opt in answer:
+                        matched = opt
+                        break
+            if not matched and llm is not None and getattr(llm, "enabled", False):
+                got = llm.interpret_choice(q["question"], answer, options)
+                if got in options:
+                    matched = got
+            if not matched:
+                matched = self._keyword_match(qid, answer)
             mapping = _INIT_MAPPING.get(qid, {})
-            if answer in mapping:
-                dim, fname, value = mapping[answer]
+            if matched in mapping:
+                dim, fname, value = mapping[matched]
                 self._apply((dim, fname), value, f"画像初始化问题「{qid}」", mode="direct")
                 self.meta[f"init_{qid}"] = answer
+
+    @staticmethod
+    def _keyword_match(qid: str, answer: str) -> str:
+        for opt, hints in _KEYWORD_HINTS.get(qid, {}).items():
+            if any(h in answer for h in hints):
+                return opt
+        return ""
 
     # ---- 核心写入（规格 4.3 更新公式） ---------------------------------
     def _apply(
@@ -377,4 +434,3 @@ class ProfileSystem:
                 self.profile.setdefault(dim, {})[fname] = copy.deepcopy(rec["value"])
             self.field_meta.setdefault(key, {"last_updated": _now(), "updated_count": 0})["last_updated"] = rec.get("last_updated", _now())
         self.last_calibration_snapshot = copy.deepcopy(self.profile)
-

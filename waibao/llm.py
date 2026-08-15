@@ -84,6 +84,21 @@ class LLMAdapter:
         """最小连通性自检：发起一次极小的真实调用并返回模型回复。"""
         return self._chat([{"role": "user", "content": "请只回复两个字：正常"}])
 
+    def interpret_choice(self, question: str, answer: str, choices: list[str]) -> str:
+        """把用户的自由回答映射到最贴近的候选值（用于画像初始化/澄清）。"""
+        if not self.enabled:
+            return ""
+        prompt = (
+            f"问题：{question}\n"
+            f"用户回答：{answer}\n"
+            f"候选值：{' / '.join(choices)}\n"
+            f"请从候选值里选出最贴合用户意思的一项，只回复该候选值的原文，不要任何解释。"
+        )
+        try:
+            return self._chat([{"role": "user", "content": prompt}]).strip()
+        except Exception:
+            return ""
+
     # ---- HTTP 调用 ----------------------------------------------------
     def _chat(self, messages: list[dict[str, str]]) -> str:
         payload = {

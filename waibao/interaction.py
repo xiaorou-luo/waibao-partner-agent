@@ -45,14 +45,16 @@ class ConsoleInterface:
     def ask_initial(self, questions: list[dict[str, Any]]) -> dict[str, str]:
         answers: dict[str, str] = {}
         for q in questions:
-            self._show_fn(f"{q['question']}\n选项：{' / '.join(q['options'])}")
+            self._show_fn(q["question"])
+            self._show_fn(f"（比如：{' / '.join(q['options'])}，也可以直接说你的想法）")
             answers[q["id"]] = self._input_fn("> ").strip()
         return answers
 
     def ask_closed(self, questions: list[dict[str, Any]]) -> dict[str, str]:
         answers: dict[str, str] = {}
         for q in questions:
-            self._show_fn(f"{q['question']}\n选项：{' / '.join(q['options'])}")
+            self._show_fn(q["question"])
+            self._show_fn(f"（比如：{' / '.join(q['options'])}，也可以直接说）")
             answers[q["id"]] = self._input_fn("> ").strip()
         return answers
 

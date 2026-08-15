@@ -94,7 +94,7 @@ class PersonalExplorerAgent:
         if self.ltm.profile_initialized():
             return False
         answers = self.interface.ask_initial(self.profile.init_questions())
-        self.profile.apply_initial_answers(answers)
+        self.profile.apply_initial_answers(answers, llm=self.llm)
         self.evolution.save_profile(self.profile, mark_initialized=True)
         self.interface.show("画像初始化完成，说说你想做什么吧。")
         return True
