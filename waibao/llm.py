@@ -99,6 +99,13 @@ class LLMAdapter:
         except Exception:
             return ""
 
+    @property
+    def supports_vision(self) -> bool:
+        """是否支持图片输入（目前仅部分 OpenAI 视觉模型；DeepSeek-chat 不支持）。"""
+        return self.provider == "openai" and any(
+            k in self.model for k in ("gpt-4o", "gpt-4-vision", "gpt-4.1", "gpt-4.5", "o1", "o3")
+        )
+
     # ---- HTTP 调用 ----------------------------------------------------
     def _chat(self, messages: list[dict[str, str]]) -> str:
         payload = {

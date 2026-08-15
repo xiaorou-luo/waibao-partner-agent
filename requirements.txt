@@ -4,3 +4,5 @@
 # langchain-openai
 # openai
 
+# 网页版（Streamlit）
+streamlit>=1.36

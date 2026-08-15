@@ -12,11 +12,13 @@
 
 from __future__ import annotations
 
+import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
+from . import tools
 from .interaction import ConsoleInterface
 from .llm import LLMAdapter
 from .memory import EpisodicMemory, LongTermMemory, MemoryEvolutionSystem, WorkingMemory
@@ -50,6 +52,9 @@ class PersonalExplorerAgent:
         self.wm = WorkingMemory()
         self.episodic = EpisodicMemory(self.storage_dir)
         self.evolution = MemoryEvolutionSystem(self.ltm, self.episodic, self.storage_dir)
+        self.resume_offered_for: str | None = None
+        self.history: list[dict[str, str]] = []
+        self.history_file = self.storage_dir / "conversation_history.json"
 
         self._load_persistent_state()
         self.interface.profile_provider = lambda: self.profile.profile
@@ -59,8 +64,6 @@ class PersonalExplorerAgent:
             interface=self.interface,
             llm=self.llm,
         )
-        self.resume_offered_for: str | None = None
-        self.history: list[dict[str, str]] = []
 
     # ---- 持久化 -------------------------------------------------------
     def _load_persistent_state(self) -> None:
@@ -71,6 +74,12 @@ class PersonalExplorerAgent:
             if self.profile.apply_time_decay():
                 self.evolution.save_profile(self.profile)
         self.episodic.load()
+        # 恢复跨重启的对话历史
+        if self.history_file.exists():
+            try:
+                self.history = json.loads(self.history_file.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                self.history = []
 
     # ---- 命令入口（规格 5.3 / 5.4） ------------------------------------
     def handle(self, text: str) -> None:
@@ -100,11 +109,7 @@ class PersonalExplorerAgent:
         self.profile.apply_explicit_rules(text)
 
         # 2) 组装上下文：系统人设 + 画像 + 最近对话
-        messages: list[dict[str, str]] = [
-            {"role": "system", "content": self._system_prompt()}
-        ]
-        messages.extend(self.history[-24:])
-        messages.append({"role": "user", "content": text})
+        messages = self._prepare_messages(text)
 
         # 3) 流式回复
         parts: list[str] = []
@@ -117,12 +122,63 @@ class PersonalExplorerAgent:
         self.interface.stream("\n")
         reply = "".join(parts).strip()
 
-        # 4) 记住本轮 + 持久化画像
-        self.history.append({"role": "user", "content": text})
+        # 4) 记住本轮 + 持久化
+        self._commit_history(text, reply)
+        return reply
+
+    def converse_stream(self, text: str):
+        """网页版用：逐段产出回复（生成器），同时更新历史与画像。"""
+        self.profile.apply_explicit_rules(text)
+        if not self.llm.enabled:
+            yield "（未配置 LLM API Key，请先设置再试。）"
+            return
+        messages = self._prepare_messages(text)
+        parts: list[str] = []
+        try:
+            for delta in self.llm.chat_stream(messages):
+                parts.append(delta)
+                yield delta
+        except Exception as exc:  # noqa: BLE001
+            yield f"\n（生成出错：{exc}）"
+        self._commit_history(text, "".join(parts).strip())
+
+    def _prepare_messages(self, text: str) -> list[dict[str, str]]:
+        """组装发给 LLM 的消息：系统人设 + 画像 + 最近对话 +（可选）工具结果。"""
+        tool_note = self._run_tools(text)
+        user_content = (tool_note + "\n\n用户原始消息：" + text) if tool_note else text
+        messages: list[dict[str, str]] = [
+            {"role": "system", "content": self._system_prompt()}
+        ]
+        messages.extend(self.history[-24:])
+        messages.append({"role": "user", "content": user_content})
+        return messages
+
+    def _run_tools(self, text: str) -> str:
+        """识别「搜索 / 读文件 / 列目录」请求并执行，返回工具结果（无则空串）。"""
+        m = re.search(r"(?:^|\s)(?:/搜|/search|搜索|搜一下|帮我搜|查一下)\s*(.+)", text)
+        if m:
+            return "[联网搜索结果]\n" + tools.web_search(m.group(1).strip())
+        m = re.search(r"(?:^|\s)(?:/读|读文件|打开文件)\s*(.+)", text)
+        if m:
+            return "[文件内容]\n" + tools.read_file(m.group(1).strip())
+        m = re.search(r"(?:^|\s)(?:/列|列出文件|看看目录)\s*(.*)", text)
+        if m:
+            return "[目录列表]\n" + tools.list_dir(m.group(1).strip() or ".")
+        return ""
+
+    def _commit_history(self, user_text: str, reply: str) -> None:
+        self.history.append({"role": "user", "content": user_text})
         if reply:
             self.history.append({"role": "assistant", "content": reply})
+        self._save_history()
         self.evolution.save_profile(self.profile)
-        return reply
+
+    def _save_history(self) -> None:
+        self.history_file.parent.mkdir(parents=True, exist_ok=True)
+        self.history_file.write_text(
+            json.dumps(self.history[-200:], ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
 
     def _system_prompt(self) -> str:
         p = self.profile.snapshot()

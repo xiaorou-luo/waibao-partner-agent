@@ -10,6 +10,7 @@ cd waibao_partner_agent
 python3 demo.py    # 全自动演示（结构化任务流程：澄清→规格→四阶段交付）
 python3 chat.py    # 真人在终端交互；接 LLM 后是 ChatGPT 式自然对话（带画像/多轮/流式）
 python3 llm_test.py  # LLM 连通性自检（换 Key 后先跑这个确认）
+./run_web.sh       # 网页版（Streamlit，首次自动安装依赖并打开浏览器）
 ```
 
 `chat.py` 有两种模式：设了 LLM Key 时是「自然对话模式」（像 ChatGPT 一样
@@ -17,6 +18,23 @@ python3 llm_test.py  # LLM 连通性自检（换 Key 后先跑这个确认）
 「结构化任务流程」（澄清 → 规格确认 → 框架/内容/成品四阶段交付）。
 
 `chat.py` 支持命令：`查看画像`、`调整画像`、`查看历史`、`接着做`。
+
+## 网页版与工具
+
+网页版（`streamlit run app.py`，或双击 `启动网页.command` / 运行 `./run_web.sh`）：
+聊天式界面 + 流式输出 + 侧边栏画像 + 一键清空/重置记忆。
+
+在对话里直接说以下指令即可触发工具：
+
+- `搜索 <关键词>`：联网搜索（需设置 `TAVILY_API_KEY`，https://tavily.com 有免费额度）
+- `读文件 <路径>`：读取项目目录内的文本文件
+- `列出文件`：列出目录内容
+
+跨重启对话历史：`chat.py` 和网页版都会把对话保存到 `waibao_data/conversation_history.json`，
+下次打开接着聊。
+
+图片多模态：代码已留 `LLMAdapter.supports_vision` 钩子；当前 DeepSeek-chat 不支持图片，
+换成 OpenAI 视觉模型（如 gpt-4o）后即可启用图片上传。
 
 ## 模块映射
 

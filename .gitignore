@@ -3,3 +3,5 @@ demo_data/
 waibao_data/
 *.pyc
 .env
+.venv/
+conversation_history.json
