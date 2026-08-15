@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import sys
 from typing import Any, Callable, Optional
 
 
@@ -15,10 +16,21 @@ class ConsoleInterface:
         profile_provider: Optional[Callable[[], dict[str, Any]]] = None,
         show_fn: Callable[[str], None] = print,
         input_fn: Callable[[str], str] = input,
+        stream_fn: Optional[Callable[[str], None]] = None,
     ) -> None:
         self.profile_provider = profile_provider
         self._show_fn = show_fn
         self._input_fn = input_fn
+        self._stream_fn = stream_fn or self._default_stream
+
+    @staticmethod
+    def _default_stream(text: str) -> None:
+        sys.stdout.write(text)
+        sys.stdout.flush()
+
+    def stream(self, text: str) -> None:
+        """流式输出一小段文本（不换行）。"""
+        self._stream_fn(text)
 
     # ---- 输出（规格 5.1） ---------------------------------------------
     def show(self, text: str) -> None:

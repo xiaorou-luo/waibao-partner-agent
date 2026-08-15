@@ -60,6 +60,7 @@ class PersonalExplorerAgent:
             llm=self.llm,
         )
         self.resume_offered_for: str | None = None
+        self.history: list[dict[str, str]] = []
 
     # ---- 持久化 -------------------------------------------------------
     def _load_persistent_state(self) -> None:
@@ -87,7 +88,62 @@ class PersonalExplorerAgent:
             else:
                 self.interface.show("没有找到暂停中的任务。")
         else:
-            self.start_new_task(t)
+            if self.llm.enabled:
+                self.converse(t)
+            else:
+                self.start_new_task(t)
+
+    # ---- 自然对话模式（ChatGPT 式） ------------------------------------
+    def converse(self, text: str) -> str:
+        """像 ChatGPT 一样多轮自然对话：带画像、带历史、流式回复，并默默学习。"""
+        # 1) 从这句话里学习显式信号（静默，不打断对话）
+        self.profile.apply_explicit_rules(text)
+
+        # 2) 组装上下文：系统人设 + 画像 + 最近对话
+        messages: list[dict[str, str]] = [
+            {"role": "system", "content": self._system_prompt()}
+        ]
+        messages.extend(self.history[-24:])
+        messages.append({"role": "user", "content": text})
+
+        # 3) 流式回复
+        parts: list[str] = []
+        try:
+            for delta in self.llm.chat_stream(messages):
+                self.interface.stream(delta)
+                parts.append(delta)
+        except Exception as exc:  # noqa: BLE001
+            self.interface.stream(f"\n（生成出错：{exc}）")
+        self.interface.stream("\n")
+        reply = "".join(parts).strip()
+
+        # 4) 记住本轮 + 持久化画像
+        self.history.append({"role": "user", "content": text})
+        if reply:
+            self.history.append({"role": "assistant", "content": reply})
+        self.evolution.save_profile(self.profile)
+        return reply
+
+    def _system_prompt(self) -> str:
+        p = self.profile.snapshot()
+        cog, exp, dom, col = p["cognition"], p["expression"], p["domain"], p["collaboration"]
+        return (
+            "你是「外脑伙伴」，用户的私人 AI 伙伴，像一个既懂 ta 又专业的朋友。"
+            "你善于理解 ta 没说透的需求，主动补全、温和追问，但绝不啰嗦、不说教、不堆套话。"
+            "\n\n你对这位用户的了解（画像，随对话持续更新）：\n"
+            f"- 思维认知：宏观优先 {cog['thinking_macro_first']}、需要细节辅助 {cog['detail_assist_needed']}、"
+            f"逻辑vs直觉 {cog['logic_over_intuition']}、深度优先 {cog['depth_first']}\n"
+            f"- 表达风格：语气 {exp['output_tone']}、结构密度 {exp['structure_density']}、"
+            f"举例偏好 {exp['example_preference']}、抽象程度 {exp['abstraction_level']}\n"
+            f"- 领域：主{dom['domain_primary']}（深度 {dom['domain_depth_primary']}）、"
+            f"次{dom['domain_secondary']}（深度 {dom['domain_depth_secondary']}）\n"
+            f"- 协作习惯：决策速度 {col['decision_speed']}、追问耐受 {col['followup_tolerance']}、"
+            f"初稿后放弃概率 {col['abandon_after_first_draft']}\n"
+            f"- 红线（务必避免）：{'、'.join(p['value_red_lines'])}"
+            "\n\n回答规则：中文为主；用户偏好宏观就先给框架；需要细节就展开；"
+            "如果用户想要完整方案但容易半途而废，就分小段给、每段问一下要不要继续。"
+            "遇到模糊需求，只补一个最关键的缺口，不要一次性问一堆。"
+        )
 
     # ---- 画像初始化（规格 2.2） ----------------------------------------
     def ensure_profile_initialized(self) -> bool:

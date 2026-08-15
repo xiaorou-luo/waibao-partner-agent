@@ -7,10 +7,14 @@
 
 ```bash
 cd waibao_partner_agent
-python3 demo.py    # 全自动演示
-python3 chat.py    # 真人在终端交互（记忆持久化到 waibao_data/）
+python3 demo.py    # 全自动演示（结构化任务流程：澄清→规格→四阶段交付）
+python3 chat.py    # 真人在终端交互；接 LLM 后是 ChatGPT 式自然对话（带画像/多轮/流式）
 python3 llm_test.py  # LLM 连通性自检（换 Key 后先跑这个确认）
 ```
+
+`chat.py` 有两种模式：设了 LLM Key 时是「自然对话模式」（像 ChatGPT 一样
+连续多轮聊、逐字流式输出、默默学习你的偏好）；没设 Key 时退回
+「结构化任务流程」（澄清 → 规格确认 → 框架/内容/成品四阶段交付）。
 
 `chat.py` 支持命令：`查看画像`、`调整画像`、`查看历史`、`接着做`。
 

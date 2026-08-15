@@ -129,6 +129,48 @@ class LLMAdapter:
         except (KeyError, IndexError, TypeError) as exc:
             raise RuntimeError(f"LLM 返回格式异常：{body}") from exc
 
+    def chat_stream(self, messages: list[dict[str, str]]):
+        """流式调用：逐段产出文本（ChatGPT 式打字效果）。"""
+        if not self.enabled:
+            raise NotImplementedError("未配置 LLM API Key。")
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": self.temperature,
+            "stream": True,
+        }
+        req = urllib.request.Request(
+            self.base_url + "/chat/completions",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.api_key}",
+            },
+            method="POST",
+        )
+        try:
+            resp = urllib.request.urlopen(req, timeout=self.timeout)
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", "replace")
+            raise RuntimeError(f"LLM 调用失败（HTTP {exc.code}）：{detail[:400]}") from exc
+        except urllib.error.URLError as exc:
+            raise RuntimeError(f"无法连接 LLM 服务：{exc.reason}") from exc
+        with resp:
+            for raw in resp:
+                line = raw.decode("utf-8").strip()
+                if not line or not line.startswith("data:"):
+                    continue
+                data = line[5:].strip()
+                if data == "[DONE]":
+                    break
+                try:
+                    obj = json.loads(data)
+                    delta = obj["choices"][0]["delta"].get("content") or ""
+                except (json.JSONDecodeError, KeyError, IndexError, TypeError):
+                    continue
+                if delta:
+                    yield delta
+
     # ---- Prompt 组装（把画像 + 规格 + 阶段 + 约束注入） ----------------
     def _build_messages(
         self,
