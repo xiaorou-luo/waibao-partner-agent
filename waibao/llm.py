@@ -22,6 +22,7 @@ from typing import Any, Optional
 PROVIDERS: dict[str, dict[str, str]] = {
     "openai": {"base_url": "https://api.openai.com/v1", "model": "gpt-4o-mini"},
     "deepseek": {"base_url": "https://api.deepseek.com/v1", "model": "deepseek-chat"},
+    "usegoodai": {"base_url": "https://api.usegoodai.com/v1", "model": "claude-3-7-sonnet-20250219"},
 }
 
 _INTENT_LABELS = {
@@ -59,6 +60,8 @@ class LLMAdapter:
             or _env("LLM_API_KEY")
             or _env("OPENAI_API_KEY")
             or _env("DEEPSEEK_API_KEY")
+            or _env("ANTHROPIC_AUTH_TOKEN")
+            or _env("ANTHROPIC_API_KEY")
         )
         self.temperature = temperature
         self.timeout = timeout
@@ -203,4 +206,3 @@ class LLMAdapter:
         elif conflict_choice == "按你的要求":
             rules.append("用户已确认按原要求执行，可忽略套话相关红线。")
         return "\n".join(f"- {r}" for r in rules)
-

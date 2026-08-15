@@ -66,18 +66,29 @@ python3 chat.py    # 真人在终端交互（记忆持久化到 waibao_data/）
 - ✅ 完整任务流程演示（demo.py）
 - ✅ 画像更新演示（反馈修改字段）
 
-## 接真实 LLM（OpenAI / DeepSeek 兼容接口）
+## 接真实 LLM（OpenAI 兼容接口，支持 OpenAI / DeepSeek / Anthropic 中转）
 
 方案生成默认由规则引擎完成，保证无 Key 也能跑。要换成真实大模型，
 只需设置环境变量（零第三方依赖，用标准库直接调兼容接口）：
 
 ```bash
-export LLM_PROVIDER=deepseek            # 或 openai
+export LLM_PROVIDER=deepseek            # openai / deepseek / usegoodai
 export LLM_API_KEY=你的密钥
 # 可选：export LLM_MODEL=deepseek-chat   # 覆盖默认模型
 
 python3 chat.py                         # 此时会自动启用真实 LLM
 ```
+
+也支持任意 OpenAI 兼容端点（如 Anthropic 中转）：
+
+```bash
+export LLM_BASE_URL=https://api.usegoodai.com/v1
+export LLM_API_KEY=你的密钥
+export LLM_MODEL=claude-3-7-sonnet-20250219
+```
+
+密钥读取顺序：`LLM_API_KEY` → `OPENAI_API_KEY` → `DEEPSEEK_API_KEY` →
+`ANTHROPIC_AUTH_TOKEN` → `ANTHROPIC_API_KEY`。
 
 也可以在代码里显式传入：
 
