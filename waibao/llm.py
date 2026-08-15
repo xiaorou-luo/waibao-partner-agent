@@ -16,6 +16,7 @@ import json
 import os
 import urllib.error
 import urllib.request
+from pathlib import Path
 from typing import Any, Optional
 
 
@@ -36,6 +37,29 @@ _INTENT_LABELS = {
 
 def _env(key: str, default: str = "") -> str:
     return os.environ.get(key, default)
+
+
+def load_dotenv(path: Optional[str] = None) -> None:
+    """从 .env 加载 KEY=VALUE（不覆盖已存在的环境变量）。
+
+    默认依次查找：项目根目录（waibao 包的上一级）、当前目录。
+    这样无论用 run.sh、chat.py 还是 streamlit 启动，都能读到密钥。
+    """
+    candidates: list[Path] = []
+    if path:
+        candidates.append(Path(path))
+    else:
+        candidates.append(Path(__file__).resolve().parent.parent / ".env")
+        candidates.append(Path.cwd() / ".env")
+    for fp in candidates:
+        if fp.exists():
+            for line in fp.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+            break
 
 
 class LLMAdapter:

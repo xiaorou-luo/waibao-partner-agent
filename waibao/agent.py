@@ -20,7 +20,7 @@ from uuid import uuid4
 
 from . import tools
 from .interaction import ConsoleInterface
-from .llm import LLMAdapter
+from .llm import LLMAdapter, load_dotenv
 from .memory import EpisodicMemory, LongTermMemory, MemoryEvolutionSystem, WorkingMemory
 from .profile import ProfileSystem
 from .task_engine import INTENT_LABELS, TaskFrameworkEngine, TaskSpec
@@ -43,6 +43,7 @@ class PersonalExplorerAgent:
         interface: ConsoleInterface | None = None,
         llm: LLMAdapter | None = None,
     ) -> None:
+        load_dotenv()  # 无论从哪启动，都自动读取项目里的 .env
         self.storage_dir = Path(storage_dir)
         self.llm = llm or LLMAdapter()
         self.interface = interface or ConsoleInterface()
