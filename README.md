@@ -9,6 +9,7 @@
 cd waibao_partner_agent
 python3 demo.py    # 全自动演示
 python3 chat.py    # 真人在终端交互（记忆持久化到 waibao_data/）
+python3 llm_test.py  # LLM 连通性自检（换 Key 后先跑这个确认）
 ```
 
 `chat.py` 支持命令：`查看画像`、`调整画像`、`查看历史`、`接着做`。

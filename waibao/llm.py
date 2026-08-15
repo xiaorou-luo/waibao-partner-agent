@@ -80,6 +80,10 @@ class LLMAdapter:
         messages = self._build_messages(spec, profile, stage, conflict_choice)
         return self._chat(messages)
 
+    def ping(self) -> str:
+        """最小连通性自检：发起一次极小的真实调用并返回模型回复。"""
+        return self._chat([{"role": "user", "content": "请只回复两个字：正常"}])
+
     # ---- HTTP 调用 ----------------------------------------------------
     def _chat(self, messages: list[dict[str, str]]) -> str:
         payload = {
