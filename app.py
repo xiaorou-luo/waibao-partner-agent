@@ -82,34 +82,35 @@ html, body, [class*="css"] {
 .waibao-hero {
     background: linear-gradient(120deg, #4f46e5 0%, #6366f1 55%, #818cf8 100%);
     color: #ffffff;
-    padding: 1.35rem 1.6rem;
-    border-radius: 16px;
-    margin-bottom: 0.9rem;
+    padding: 0.7rem 1.1rem;
+    border-radius: 12px;
+    margin-bottom: 0.65rem;
     box-shadow: 0 10px 28px rgba(79, 70, 229, 0.22);
 }
 .waibao-hero h1 {
     color: #ffffff;
-    font-size: 1.65rem;
-    margin: 0 0 0.25rem 0;
-    letter-spacing: 0.5px;
+    font-size: 1.12rem;
+    margin: 0;
+    letter-spacing: 0.3px;
 }
 .waibao-hero .sub {
     color: #e0e7ff;
-    font-size: 0.92rem;
-    margin: 0;
+    font-size: 0.8rem;
+    font-weight: 400;
+    margin-left: 0.5rem;
 }
 .waibao-hero .badges {
-    margin-top: 0.75rem;
+    margin-top: 0.35rem;
 }
 .waibao-badge {
     display: inline-block;
     background: rgba(255, 255, 255, 0.18);
     border: 1px solid rgba(255, 255, 255, 0.28);
     color: #ffffff;
-    padding: 0.18rem 0.75rem;
+    padding: 0.12rem 0.6rem;
     border-radius: 999px;
-    font-size: 0.78rem;
-    margin-right: 0.5rem;
+    font-size: 0.7rem;
+    margin-right: 0.35rem;
 }
 /* 聊天气泡 */
 [data-testid="stChatMessage"] {
@@ -399,14 +400,10 @@ _account_badge = "🔐 账号已登录" if _auth_enabled else "🌐 访客模式
 st.markdown(
     f"""
 <div class="waibao-hero">
-  <h1>🧠 外脑伙伴</h1>
-  <p class="sub">你的个性化探索-生成型 AI 助手 · 越用越懂你</p>
+  <h1>🧠 外脑伙伴 <span class="sub">越用越懂你</span></h1>
   <div class="badges">
-    <span class="waibao-badge">🤖 模型：{_model_txt}</span>
+    <span class="waibao-badge">🤖 {_model_txt}</span>
     <span class="waibao-badge">{_net_badge}</span>
-    <span class="waibao-badge">🧠 画像：已建立</span>
-    <span class="waibao-badge">📁 文件与工具</span>
-    <span class="waibao-badge">🌐 多语言</span>
     <span class="waibao-badge">{_account_badge}</span>
   </div>
 </div>
@@ -437,42 +434,9 @@ if _reset_top:
 
 
 # ---- 功能区页签 --------------------------------------------------------
-_tab_chat, _tab_search, _tab_history, _tab_learn, _tab_tools = st.tabs(
-    ["💬 对话", "🔍 联网搜索", "📜 历史对话", "📚 学习记录", "📁 文件工具"]
+_tab_search, _tab_history, _tab_learn, _tab_tools = st.tabs(
+    ["🔍 联网搜索", "📜 历史对话", "📚 学习记录", "📁 文件工具"]
 )
-
-with _tab_chat:
-    if "messages" not in st.session_state:
-        st.session_state.messages = list(agent.history)
-
-    for msg in st.session_state.messages:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
-
-    if agent.llm.supports_vision:
-        st.file_uploader("上传图片（视觉模型）", type=["png", "jpg", "jpeg"], key="upload_img")
-    else:
-        st.caption("💡 当前模型不支持图片，切换到 OpenAI 视觉模型后即可上传。")
-
-    prompt = st.chat_input("跟外脑伙伴说点什么…（可写：搜索 xxx / 搜索文件 / 读文件 / 运行命令）")
-
-    if prompt:
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
-        with st.chat_message("assistant"):
-            placeholder = st.empty()
-            parts: list[str] = []
-            for delta in agent.converse_stream(prompt):
-                parts.append(delta)
-                placeholder.markdown("".join(parts))
-            reply = "".join(parts).strip()
-        st.session_state.messages.append({"role": "assistant", "content": reply})
-        if _auth_enabled:
-            try:
-                db.upload_user_data(_user_id, _token, _storage_dir)
-            except Exception:
-                st.toast("云端保存失败，请稍后再试。")
 
 with _tab_search:
     _q = st.text_input("搜索关键词", key="web_q", placeholder="例如：2026 音乐产业趋势")
@@ -557,3 +521,40 @@ with _tab_tools:
         "· `搜索 xxx` —— 联网搜索\n"
         "· `运行 xxx` —— 执行命令（本机需开启）"
     )
+
+
+st.divider()
+
+
+# ---- 主聊天区（输入框固定底部） --------------------------------------
+if "messages" not in st.session_state:
+    st.session_state.messages = list(agent.history)
+
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+
+if agent.llm.supports_vision:
+    st.file_uploader("上传图片（视觉模型）", type=["png", "jpg", "jpeg"], key="upload_img")
+else:
+    st.caption("💡 当前模型不支持图片，切换到 OpenAI 视觉模型后即可上传。")
+
+prompt = st.chat_input("跟外脑伙伴说点什么…（可写：搜索 xxx / 搜索文件 / 读文件 / 运行命令）")
+
+if prompt:
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
+    with st.chat_message("assistant"):
+        placeholder = st.empty()
+        parts: list[str] = []
+        for delta in agent.converse_stream(prompt):
+            parts.append(delta)
+            placeholder.markdown("".join(parts))
+        reply = "".join(parts).strip()
+    st.session_state.messages.append({"role": "assistant", "content": reply})
+    if _auth_enabled:
+        try:
+            db.upload_user_data(_user_id, _token, _storage_dir)
+        except Exception:
+            st.toast("云端保存失败，请稍后再试。")
