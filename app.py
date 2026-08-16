@@ -226,7 +226,12 @@ if _auth_enabled and not st.session_state.get("auth_user"):
                         st.session_state.pop("_data_loaded", None)
                         st.rerun()
                     else:
-                        st.info("注册成功，请先到邮箱点击确认链接，再回来登录。")
+                        st.warning(
+                            "注册成功了，但这个邮箱还需要先验证才能登录。\n\n"
+                            "原因是 Supabase 的「邮箱确认（Confirm email）」现在还开着。\n"
+                            "如果你是这个产品的拥有者，去 Supabase 后台把它关掉，"
+                            "之后重新注册就能直接登录了。"
+                        )
                 else:
                     st.error(_res.get("error", "注册失败"))
     st.stop()
