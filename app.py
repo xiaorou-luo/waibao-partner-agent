@@ -1,11 +1,11 @@
-"""外脑伙伴 —— Streamlit 网页版
+"""外脑伙伴 —— Streamlit 网页版（商务风界面）
 
 运行：
   pip install streamlit
   streamlit run app.py
 
-功能：自然对话（流式）、画像初始化、跨重启对话历史、侧边栏画像/重置、
-联网搜索（需 TAVILY_API_KEY）、读文件/列目录工具。
+功能：自然对话（流式）、画像初始化、跨重启对话历史、联网搜索、读文件/列目录、
+商务风格界面、一键清空对话、重置记忆（二次确认）。
 """
 
 from __future__ import annotations
@@ -19,7 +19,12 @@ from waibao import tools
 from waibao.agent import PersonalExplorerAgent
 
 
-st.set_page_config(page_title="外脑伙伴", page_icon="🧠", layout="wide")
+st.set_page_config(
+    page_title="外脑伙伴",
+    page_icon="🧠",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
 # 部署到 Streamlit Cloud 时，从平台 Secrets 读取密钥（本地则用 .env）
 try:
@@ -29,7 +34,77 @@ try:
 except Exception:
     pass
 
-# 可选访问密码：公开部署时防止陌生人滥用你的额度
+
+# ---- 商务风样式 --------------------------------------------------------
+st.markdown(
+    """
+<style>
+html, body, [class*="css"] {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
+                 "Microsoft YaHei", "Segoe UI", sans-serif;
+    color: #0f172a;
+}
+/* 顶部品牌栏 */
+.waibao-hero {
+    background: linear-gradient(120deg, #0f172a 0%, #1e3a5f 55%, #2563eb 100%);
+    color: #ffffff;
+    padding: 1.35rem 1.6rem;
+    border-radius: 16px;
+    margin-bottom: 0.9rem;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
+}
+.waibao-hero h1 {
+    color: #ffffff;
+    font-size: 1.65rem;
+    margin: 0 0 0.25rem 0;
+    letter-spacing: 0.5px;
+}
+.waibao-hero .sub {
+    color: #cbd5e1;
+    font-size: 0.92rem;
+    margin: 0;
+}
+.waibao-hero .badges {
+    margin-top: 0.75rem;
+}
+.waibao-badge {
+    display: inline-block;
+    background: rgba(255, 255, 255, 0.14);
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    color: #f1f5f9;
+    padding: 0.18rem 0.75rem;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    margin-right: 0.5rem;
+}
+/* 聊天气泡 */
+[data-testid="stChatMessage"] {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    padding: 0.5rem 0.7rem;
+    margin-bottom: 0.55rem;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+/* 输入框 */
+[data-testid="stChatInput"] {
+    border-top: 1px solid #e2e8f0;
+}
+[data-testid="stChatInput"] textarea {
+    border-radius: 12px;
+}
+/* 按钮 */
+.stButton > button {
+    border-radius: 10px;
+    font-weight: 600;
+}
+</style>
+""",
+    unsafe_allow_html=True,
+)
+
+
+# ---- 可选访问密码 ------------------------------------------------------
 _pwd = os.environ.get("ACCESS_PASSWORD", "")
 if _pwd and not st.session_state.get("_authed"):
     st.title("🔒 外脑伙伴")
@@ -66,6 +141,23 @@ if not agent.ltm.profile_initialized():
     st.stop()
 
 
+# ---- 重置确认对话框 ----------------------------------------------------
+@st.dialog("确认重置全部记忆？")
+def _confirm_reset() -> None:
+    st.warning("这会删除画像、长期记忆、情景记忆和全部对话，且无法恢复。")
+    c1, c2 = st.columns(2)
+    if c1.button("取消", use_container_width=True):
+        st.rerun()
+    if c2.button("确认重置", type="primary", use_container_width=True):
+        _keep_auth = st.session_state.get("_authed", False)
+        shutil.rmtree(agent.storage_dir, ignore_errors=True)
+        st.session_state.clear()
+        if _keep_auth:
+            st.session_state["_authed"] = True
+        st.cache_resource.clear()
+        st.rerun()
+
+
 # ---- 侧边栏 ----------------------------------------------------------
 with st.sidebar:
     st.title("🧠 外脑伙伴")
@@ -74,49 +166,104 @@ with st.sidebar:
         if agent.llm.enabled
         else "LLM：未配置（规则引擎）"
     )
-    st.subheader("我的画像")
-    _p = agent.profile.snapshot()
-    _cog, _exp, _dom, _col = _p["cognition"], _p["expression"], _p["domain"], _p["collaboration"]
-    st.markdown(f"**主领域**：{_dom['domain_primary']}　**次领域**：{_dom['domain_secondary']}")
-    st.markdown(f"**语气**：{_exp['output_tone']}")
-    st.caption("宏观优先")
-    st.progress(_cog["thinking_macro_first"])
-    st.caption("结构化程度")
-    st.progress(_exp["structure_density"])
-    st.caption("举例偏好")
-    st.progress(_exp["example_preference"])
-    st.caption("红线：" + "、".join(_p["value_red_lines"]))
+
+    with st.expander("👤 我的画像", expanded=True):
+        _p = agent.profile.snapshot()
+        _cog, _exp, _dom, _col = (
+            _p["cognition"],
+            _p["expression"],
+            _p["domain"],
+            _p["collaboration"],
+        )
+        st.markdown(f"**主领域**：{_dom['domain_primary']}")
+        st.markdown(f"**次领域**：{_dom['domain_secondary']}")
+        st.markdown(f"**语气**：{_exp['output_tone']}")
+        st.caption("宏观优先")
+        st.progress(_cog["thinking_macro_first"])
+        st.caption("结构化程度")
+        st.progress(_exp["structure_density"])
+        st.caption("举例偏好")
+        st.progress(_exp["example_preference"])
+        st.markdown("**红线**：" + "、".join(_p["value_red_lines"]))
+
+    with st.expander("🔍 联网搜索", expanded=False):
+        _q = st.text_input("搜索关键词", key="web_q", placeholder="例如：2026 音乐产业趋势")
+        if st.button("搜索", key="web_go", use_container_width=True):
+            if not _q.strip():
+                st.warning("请输入关键词")
+            else:
+                with st.spinner("正在搜索…"):
+                    _r = tools.web_search_structured(_q.strip())
+                _r["query"] = _q.strip()
+                st.session_state["search_result"] = _r
+
+    with st.expander("📁 文件与工具", expanded=False):
+        st.caption("允许访问的范围")
+        st.code(tools.allowed_root_description(), language=None)
+        st.markdown(
+            "**直接发在聊天里即可**\n\n"
+            "· `搜索文件 关键词` —— 按文件名找\n"
+            "· `搜索内容 关键词` —— 按内容找\n"
+            "· `读文件 路径` —— 读取内容\n"
+            "· `列出文件` —— 看当前目录\n"
+            "· `搜索 xxx` —— 联网搜索\n"
+            "· `运行 xxx` —— 执行命令（本机需开启）"
+        )
+
+    with st.expander("🧹 数据管理", expanded=False):
+        if st.button("🗑 清空对话记录", key="clear_side", use_container_width=True):
+            agent.history = []
+            agent._save_history()
+            st.session_state.messages = []
+            st.rerun()
+        if st.button("🔄 重置全部记忆", key="reset_side", use_container_width=True):
+            _confirm_reset()
+
     st.divider()
-    st.subheader("🔍 联网搜索")
-    _q = st.text_input("搜索关键词", key="web_q", placeholder="例如：2026 音乐产业趋势")
-    if st.button("搜索", key="web_go", use_container_width=True):
-        if not _q.strip():
-            st.warning("请输入关键词")
-        else:
-            with st.spinner("正在搜索…"):
-                _r = tools.web_search_structured(_q.strip())
-            _r["query"] = _q.strip()
-            st.session_state["search_result"] = _r
-    st.divider()
-    if st.button("清空对话记录"):
-        agent.history = []
-        agent._save_history()
-        st.session_state.pop("messages", None)
-        st.rerun()
-    if st.button("重置全部记忆", type="secondary"):
-        shutil.rmtree(agent.storage_dir, ignore_errors=True)
-        st.cache_resource.clear()
-        st.rerun()
     st.caption(
-        "联网搜索：用上面的搜索框，或直接在聊天里写「搜索 xxx」。\n"
-        "读文件：写「读文件 路径」或「列出文件」。\n"
-        "图片理解：需视觉模型（如 OpenAI gpt-4o），当前 DeepSeek-chat 不支持。"
+        "· 联网：写「搜索 xxx」\n"
+        "· 文件：写「读文件 / 搜索文件 / 搜索内容」\n"
+        "· 图片理解需视觉模型（如 gpt-4o）"
     )
 
 
-# ---- 主聊天区 --------------------------------------------------------
-st.title("外脑伙伴")
+# ---- 顶部品牌栏 --------------------------------------------------------
+_net_on = bool(os.environ.get("TAVILY_API_KEY"))
+_model_txt = f"{agent.llm.provider}/{agent.llm.model}" if agent.llm.enabled else "未配置"
+_net_badge = "🔍 联网搜索：已开启" if _net_on else "🔍 联网搜索：未配置"
+st.markdown(
+    f"""
+<div class="waibao-hero">
+  <h1>🧠 外脑伙伴</h1>
+  <p class="sub">你的个性化探索-生成型 AI 助手 · 越用越懂你</p>
+  <div class="badges">
+    <span class="waibao-badge">🤖 模型：{_model_txt}</span>
+    <span class="waibao-badge">{_net_badge}</span>
+    <span class="waibao-badge">🧠 画像：已建立</span>
+    <span class="waibao-badge">📁 文件与工具</span>
+  </div>
+</div>
+""",
+    unsafe_allow_html=True,
+)
 
+
+# ---- 主操作栏（清空对话放在最显眼位置） -------------------------------
+_top1, _top2, _top3 = st.columns([1.4, 1.4, 3.2])
+with _top1:
+    _clear_top = st.button("🗑 清空对话", key="clear_top", use_container_width=True, type="primary")
+with _top2:
+    _reset_top = st.button("🔄 重置全部", key="reset_top", use_container_width=True)
+if _clear_top:
+    agent.history = []
+    agent._save_history()
+    st.session_state.messages = []
+    st.rerun()
+if _reset_top:
+    _confirm_reset()
+
+
+# ---- 搜索结果展示 ------------------------------------------------------
 if st.session_state.get("search_result"):
     _r = st.session_state["search_result"]
     st.subheader(f"🔍 搜索结果：{_r.get('query', '')}")
@@ -136,6 +283,8 @@ if st.session_state.get("search_result"):
             st.info("没有搜到结果")
     st.divider()
 
+
+# ---- 主聊天区 ----------------------------------------------------------
 if "messages" not in st.session_state:
     st.session_state.messages = list(agent.history)
 
@@ -146,9 +295,9 @@ for msg in st.session_state.messages:
 if agent.llm.supports_vision:
     st.file_uploader("上传图片（视觉模型）", type=["png", "jpg", "jpeg"], key="upload_img")
 else:
-    st.caption("💡 提示：当前模型不支持图片，切换到 OpenAI 视觉模型后即可上传。")
+    st.caption("💡 当前模型不支持图片，切换到 OpenAI 视觉模型后即可上传。")
 
-prompt = st.chat_input("跟外脑伙伴说点什么…（可写：搜索 xxx / 读文件 路径 / 列出文件）")
+prompt = st.chat_input("跟外脑伙伴说点什么…（可写：搜索 xxx / 搜索文件 / 读文件 / 运行命令）")
 
 if prompt:
     st.session_state.messages.append({"role": "user", "content": prompt})

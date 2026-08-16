@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -62,6 +63,7 @@ class PersonalExplorerAgent:
         self.episodic = EpisodicMemory(self.storage_dir)
         self.evolution = MemoryEvolutionSystem(self.ltm, self.episodic, self.storage_dir)
         self.resume_offered_for: str | None = None
+        self.pending_exec: str | None = None
         self.history: list[dict[str, str]] = []
         self.history_file = self.storage_dir / "conversation_history.json"
         self.summary: str = ""
@@ -150,6 +152,14 @@ class PersonalExplorerAgent:
     def converse_stream(self, text: str):
         """网页版用：逐段产出回复（生成器），同时更新历史与画像。"""
         self._learn(text)
+
+        # 执行命令采用「先确认、再执行」两段式，安全且不绕过 LLM
+        exec_reply = self._handle_exec_flow(text)
+        if exec_reply is not None:
+            yield exec_reply
+            self._commit_history(text, exec_reply)
+            return
+
         if not self.llm.enabled:
             yield "（未配置 LLM API Key，请先设置再试。）"
             return
@@ -192,6 +202,10 @@ class PersonalExplorerAgent:
         steps: list[str] = []
         if "联网搜索" in tool_note:
             steps.append("🔍 正在联网搜索并整理来源")
+        elif "文件搜索结果" in tool_note:
+            steps.append("🔎 正在搜索文件名")
+        elif "内容搜索结果" in tool_note:
+            steps.append("🔎 正在搜索文件内容")
         elif "文件内容" in tool_note:
             steps.append("📄 正在读取文件")
         elif "目录列表" in tool_note:
@@ -238,7 +252,13 @@ class PersonalExplorerAgent:
         )
 
     def _run_tools(self, text: str):
-        """识别「搜索 / 读文件 / 列目录」请求并执行，返回 (工具结果文本, 来源列表, 展示用结果)。"""
+        """识别「搜索文件 / 搜索内容 / 联网搜索 / 读文件 / 列目录」请求并执行。"""
+        m = re.search(r"(?:^|\s)(?:/找|找文件|搜索文件)\s*(.+)", text)
+        if m:
+            return "[文件搜索结果]\n" + tools.search_files(m.group(1).strip()), [], ""
+        m = re.search(r"(?:^|\s)(?:/grep|搜内容|搜索内容|搜索文本)\s*(.+)", text)
+        if m:
+            return "[内容搜索结果]\n" + tools.search_content(m.group(1).strip()), [], ""
         m = re.search(r"(?:^|\s)(?:/搜|/search|搜索|搜一下|帮我搜|查一下)\s*(.+)", text)
         if m:
             r = tools.web_search_structured(m.group(1).strip())
@@ -264,6 +284,40 @@ class PersonalExplorerAgent:
         if m:
             return "[目录列表]\n" + tools.list_dir(m.group(1).strip() or "."), [], ""
         return "", [], ""
+
+    def _handle_exec_flow(self, text: str) -> str | None:
+        """处理「运行命令」的确认-执行两段式，返回最终回复；不涉及则返回 None。
+
+        安全设计：执行命令默认关闭（需 WAIBao_ENABLE_EXEC=1），且必须先由用户确认，
+        避免误触发。公开部署（陌生人可访问）应始终关闭此能力。
+        """
+        t = text.strip()
+        if self.pending_exec is not None:
+            cmd = self.pending_exec
+            self.pending_exec = None
+            if t in CONFIRM_WORDS:
+                result = tools.run_command(cmd)
+                return "▶️ 正在执行命令：\n```\n" + cmd + "\n```\n\n" + result
+            return "已取消执行，没有运行任何命令。（原命令：" + cmd + "）"
+
+        m = re.search(r"(?:^|\s)(?:/运行|/执行|运行命令|执行命令|运行|执行)\s*(.+)", t)
+        if not m:
+            return None
+        cmd = m.group(1).strip()
+        if os.environ.get("WAIBao_ENABLE_EXEC") != "1":
+            return (
+                "执行命令功能默认关闭（出于安全考虑）。\n\n"
+                "如果是在**自己的电脑上**使用，可以这样开启：\n"
+                "1. 打开项目里的 `.env` 文件\n"
+                "2. 新加一行 `WAIBao_ENABLE_EXEC=1`\n"
+                "3. 重启网页\n\n"
+                "⚠️ 公开分享链接请不要开启，否则陌生人可能利用它执行命令。"
+            )
+        self.pending_exec = cmd
+        return (
+            "我准备执行这条命令：\n```\n" + cmd + "\n```\n\n"
+            "回复「确认」或「是」执行；回复其他内容则取消。"
+        )
 
     @staticmethod
     def _sources_block(sources) -> str:
@@ -373,6 +427,9 @@ class PersonalExplorerAgent:
             "遇到模糊需求，只补一个最关键的缺口，不要一次性问一堆。"
             "引用事实、数据或外部观点时，尽量给出对应的来源链接；"
             "上下文里的联网搜索结果自带 URL，请直接引用它们。"
+            "\n\n你可以调用的本地工具：搜索文件、搜索内容、读文件、列出目录、联网搜索。"
+            "当用户想找文件、查内容或读资料时，结合工具结果给出答案，"
+            "并在回复里尽量点出关键的文件名或路径，方便用户直接定位。"
         )
 
     # ---- 画像初始化（规格 2.2） ----------------------------------------

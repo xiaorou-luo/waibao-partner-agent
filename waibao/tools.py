@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -100,3 +101,106 @@ def list_dir(path: str = ".") -> str:
         return f"（目录不存在：{p}）"
     names = sorted(str(x.name) for x in p.iterdir())
     return "\n".join(f"- {n}" for n in names) if names else "（空目录）"
+
+
+# ---- 新增：文件搜索 / 内容搜索 / 受控执行命令 -------------------------
+
+_SKIP_DIRS = {
+    "node_modules", ".venv", "venv", "__pycache__", "dist", "build", ".git",
+    ".svn", ".hg", ".idea", ".vscode", ".next", ".nuxt", "target",
+    "Library", "Applications", "System", "Volumes", "cores",
+    ".Trash", ".Spotlight-V100", ".fseventsd", ".DocumentRevisions-V100",
+    ".TemporaryItems",
+}
+
+
+def _skip_dir(name: str) -> bool:
+    """搜索时跳过隐藏目录、依赖缓存、系统大目录，避免误扫和过慢。"""
+    return name.startswith(".") or name in _SKIP_DIRS
+
+
+def allowed_root_description() -> str:
+    """返回当前允许访问的根目录（供界面展示）。"""
+    return str(_allowed_root())
+
+
+def search_files(query: str, limit: int = 50) -> str:
+    """在允许根目录内按文件名/路径搜索（只读）。"""
+    base = _allowed_root()
+    q = query.strip().lower()
+    if not q:
+        return "（请提供要搜索的文件名关键词，例如：搜索文件 报告）"
+    hits: list[str] = []
+    for root, dirs, files in os.walk(base):
+        dirs[:] = [d for d in dirs if not _skip_dir(d)]
+        for name in files:
+            if q in name.lower():
+                hits.append(str(Path(root) / name))
+                if len(hits) >= limit:
+                    break
+        if len(hits) >= limit:
+            break
+    if not hits:
+        return f"（在 {base} 内没有找到文件名包含「{query}」的文件）"
+    return "找到 " + str(len(hits)) + " 个文件：\n" + "\n".join(f"- {h}" for h in hits)
+
+
+def search_content(query: str, limit: int = 30) -> str:
+    """在允许根目录内搜索文本内容（只读，跳过二进制和大文件）。"""
+    base = _allowed_root()
+    q = query.strip()
+    if not q:
+        return "（请提供要搜索的内容关键词，例如：搜索内容 预算）"
+    hits: list[str] = []
+    for root, dirs, files in os.walk(base):
+        dirs[:] = [d for d in dirs if not _skip_dir(d)]
+        for name in files:
+            p = Path(root) / name
+            try:
+                if p.stat().st_size > 2_000_000:
+                    continue
+                text = p.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            if q in text:
+                hits.append(str(p))
+                if len(hits) >= limit:
+                    break
+        if len(hits) >= limit:
+            break
+    if not hits:
+        return f"（在 {base} 内没有找到包含「{query}」的文件）"
+    return "找到 " + str(len(hits)) + " 个文件包含「" + query + "」：\n" + "\n".join(f"- {h}" for h in hits)
+
+
+def run_command(command: str, timeout: int = 30) -> str:
+    """在允许根目录内执行一条命令。
+
+    出于安全，默认关闭：只有 .env 里显式设置 WAIBao_ENABLE_EXEC=1 才可用；
+    并且应只在「本机运行」时开启，公开部署（陌生人可访问）请务必保持关闭。
+    """
+    if os.environ.get("WAIBao_ENABLE_EXEC") != "1":
+        return (
+            "（执行命令功能默认关闭，出于安全考虑。"
+            "如在本机使用，请在项目 .env 中加一行 WAIBao_ENABLE_EXEC=1 后重启；"
+            "公开链接请不要开启，以免被陌生人利用。）"
+        )
+    command = command.strip()
+    if not command:
+        return "（请提供要执行的命令）"
+    base = _allowed_root()
+    try:
+        proc = subprocess.run(
+            command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            cwd=str(base),
+        )
+    except subprocess.TimeoutExpired:
+        return f"（命令执行超时（超过 {timeout} 秒），已终止）"
+    except Exception as exc:  # noqa: BLE001
+        return f"（执行失败：{exc}）"
+    out = ((proc.stdout or "") + (proc.stderr or "")).strip()
+    return out[:4000] if out else "（命令执行完成，无输出）"
