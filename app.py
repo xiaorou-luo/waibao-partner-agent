@@ -199,7 +199,8 @@ with st.sidebar:
 
     with st.expander("📁 文件与工具", expanded=False):
         st.caption("允许访问的范围")
-        st.code(tools.allowed_root_description(), language=None)
+        _root_fn = getattr(tools, "allowed_root_description", None)
+        st.code(_root_fn() if _root_fn else "（项目目录）", language=None)
         st.markdown(
             "**直接发在聊天里即可**\n\n"
             "· `搜索文件 关键词` —— 按文件名找\n"
