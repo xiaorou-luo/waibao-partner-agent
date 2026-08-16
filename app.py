@@ -18,6 +18,7 @@ import streamlit as st
 
 from waibao import db, tools
 from waibao.agent import PersonalExplorerAgent
+from waibao.llm import load_dotenv
 
 
 st.set_page_config(
@@ -42,6 +43,9 @@ try:
             os.environ.setdefault(_key, str(st.secrets[_key]))
 except Exception:
     pass
+
+# 本地读取 .env（云端 Secrets 已通过上面的 st.secrets 注入，优先级更高）
+load_dotenv()
 
 
 # ---- 商务风样式 --------------------------------------------------------
