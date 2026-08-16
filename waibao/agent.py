@@ -30,6 +30,14 @@ STAGE_LABELS = ("需求澄清", "框架草案", "内容填充", "成品交付")
 STAGE_PLAN = (("框架草案", "framework"), ("内容填充", "full"), ("成品交付", "final"))
 QUICK_ACCEPT = {"好", "行", "可以", "不错", "ok", "OK", "Ok"}
 CONFIRM_WORDS = {"对", "是", "确认", "嗯", "对呀"}
+QUICK_ACCEPT_FIELDS = [
+    ("cognition", "thinking_macro_first"),
+    ("cognition", "detail_assist_needed"),
+    ("expression", "structure_density"),
+    ("expression", "abstraction_level"),
+    ("expression", "example_preference"),
+    ("collaboration", "abandon_after_first_draft"),
+]
 
 
 def _now() -> str:
@@ -106,8 +114,8 @@ class PersonalExplorerAgent:
     # ---- 自然对话模式（ChatGPT 式） ------------------------------------
     def converse(self, text: str) -> str:
         """像 ChatGPT 一样多轮自然对话：带画像、带历史、流式回复，并默默学习。"""
-        # 1) 从这句话里学习显式信号（静默，不打断对话）
-        self.profile.apply_explicit_rules(text)
+        # 1) 从这句话里学习（显式 + 隐式信号，静默）
+        self._learn(text)
 
         # 2) 组装上下文：系统人设 + 画像 + 最近对话
         messages = self._prepare_messages(text)
@@ -129,7 +137,7 @@ class PersonalExplorerAgent:
 
     def converse_stream(self, text: str):
         """网页版用：逐段产出回复（生成器），同时更新历史与画像。"""
-        self.profile.apply_explicit_rules(text)
+        self._learn(text)
         if not self.llm.enabled:
             yield "（未配置 LLM API Key，请先设置再试。）"
             return
@@ -150,9 +158,45 @@ class PersonalExplorerAgent:
         messages: list[dict[str, str]] = [
             {"role": "system", "content": self._system_prompt()}
         ]
+        memory = self._retrieve_memory(text)
+        if memory:
+            messages.append({"role": "system", "content": memory})
         messages.extend(self.history[-24:])
         messages.append({"role": "user", "content": user_content})
         return messages
+
+    def _learn(self, text: str) -> None:
+        """静默学习：显式信号 + 隐式信号（快速确认 / 重复提问）。"""
+        self.profile.apply_explicit_rules(text)
+        t = text.strip()
+        if t in QUICK_ACCEPT:
+            self.profile.apply_implicit("quick_acceptance", fields=QUICK_ACCEPT_FIELDS)
+        elif any(w in text for w in ("又", "还是", "重复", "上次")):
+            self.profile.apply_implicit("repeated_question", note=text[:40])
+
+    def _retrieve_memory(self, text: str) -> str:
+        """检索与当前话题相关的历史情景记忆，注入上下文。"""
+        intent = self.engine.parse(text)
+        hits = self.episodic.retrieve_similar(
+            goal=text,
+            intent=intent.intent_type,
+            domain=intent.domain_hint,
+            top_k=3,
+        )
+        lines: list[str] = []
+        for ep, score in hits:
+            if score < 0.03:
+                continue
+            lines.append(
+                f"- 之前做过：{ep.get('task_goal','')[:60]}"
+                f"（领域 {ep.get('domain','')}，意图 {ep.get('intent_type','')}，状态 {ep.get('status','')}）"
+            )
+        if not lines:
+            return ""
+        return (
+            "以下是你和这位用户相关的历史记忆，回答时可自然参考、不要生硬复述：\n"
+            + "\n".join(lines)
+        )
 
     def _run_tools(self, text: str) -> str:
         """识别「搜索 / 读文件 / 列目录」请求并执行，返回工具结果（无则空串）。"""
@@ -171,8 +215,33 @@ class PersonalExplorerAgent:
         self.history.append({"role": "user", "content": user_text})
         if reply:
             self.history.append({"role": "assistant", "content": reply})
+        self._remember_turn(user_text, reply)
         self._save_history()
         self.evolution.save_profile(self.profile)
+
+    def _remember_turn(self, text: str, reply: str) -> None:
+        """把有价值的对话轮次记入情景记忆，供以后检索（过滤掉「好/继续」等噪音）。"""
+        if len(text.strip()) < 8:
+            return
+        intent = self.engine.parse(text)
+        self.episodic.add({
+            "task_id": uuid4().hex[:8],
+            "task_goal": text[:120],
+            "intent_type": intent.intent_type,
+            "domain": intent.domain_hint or self.profile.get("domain", "domain_primary"),
+            "start_time": _now(),
+            "end_time": _now(),
+            "status": "completed",
+            "abandon_point": None,
+            "interaction_log": [text, reply[:400]],
+            "user_feedback": [],
+            "used_framework": None,
+            "user_satisfaction": None,
+            "confirmed_details": {},
+            "full_delivered": False,
+            "kind": "chat",
+        })
+        self.episodic.trim(200)
 
     def _save_history(self) -> None:
         self.history_file.parent.mkdir(parents=True, exist_ok=True)

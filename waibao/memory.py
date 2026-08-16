@@ -129,6 +129,12 @@ class EpisodicMemory:
         self.save()
         return episode["task_id"]
 
+    def trim(self, keep: int = 200) -> None:
+        """只保留最近 keep 条情景记忆，避免无限增长。"""
+        if len(self._data["episodes"]) > keep:
+            self._data["episodes"] = self._data["episodes"][-keep:]
+            self.save()
+
     def all_episodes(self) -> list[dict[str, Any]]:
         return list(self._data["episodes"])
 
