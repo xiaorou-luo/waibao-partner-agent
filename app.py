@@ -434,6 +434,7 @@ with st.sidebar:
     st.caption(
         "· 联网：写「搜索 xxx」\n"
         "· 文件：写「读文件 / 搜索文件 / 搜索内容」\n"
+        "· 支持中/英/日/韩/西/法等语言\n"
         "· 图片理解需视觉模型（如 gpt-4o）"
     )
 
@@ -453,6 +454,7 @@ st.markdown(
     <span class="waibao-badge">{_net_badge}</span>
     <span class="waibao-badge">🧠 画像：已建立</span>
     <span class="waibao-badge">📁 文件与工具</span>
+    <span class="waibao-badge">🌐 多语言</span>
     <span class="waibao-badge">{_account_badge}</span>
   </div>
 </div>
