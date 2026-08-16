@@ -16,7 +16,7 @@ import uuid
 
 import streamlit as st
 
-from waibao import tools
+from waibao import db, tools
 from waibao.agent import PersonalExplorerAgent
 
 
@@ -29,7 +29,15 @@ st.set_page_config(
 
 # 部署到 Streamlit Cloud 时，从平台 Secrets 读取密钥（本地则用 .env）
 try:
-    for _key in ("LLM_PROVIDER", "LLM_API_KEY", "LLM_MODEL", "TAVILY_API_KEY", "ACCESS_PASSWORD"):
+    for _key in (
+        "LLM_PROVIDER",
+        "LLM_API_KEY",
+        "LLM_MODEL",
+        "TAVILY_API_KEY",
+        "ACCESS_PASSWORD",
+        "SUPABASE_URL",
+        "SUPABASE_ANON_KEY",
+    ):
         if _key in st.secrets:
             os.environ.setdefault(_key, str(st.secrets[_key]))
 except Exception:
@@ -120,6 +128,54 @@ if _pwd and not st.session_state.get("_authed"):
     st.stop()
 
 
+# ---- 账号登录 / 注册（配置了 Supabase 时启用） ------------------------
+_auth_enabled = db.configured()
+if _auth_enabled and not st.session_state.get("auth_user"):
+    st.title("🧠 外脑伙伴")
+    st.markdown("登录后，你的画像、记忆和聊天历史会跨设备保存在云端。")
+    _tab_login, _tab_signup = st.tabs(["登录", "注册"])
+    with _tab_login:
+        _email = st.text_input("邮箱", key="login_email")
+        _pwd = st.text_input("密码", type="password", key="login_pwd")
+        if st.button("登录", type="primary", use_container_width=True):
+            if not _email or not _pwd:
+                st.warning("请输入邮箱和密码")
+            else:
+                _res = db.sign_in(_email, _pwd)
+                if _res.get("ok"):
+                    st.session_state["auth_user"] = {
+                        "id": _res["user_id"],
+                        "email": _email.strip(),
+                        "access_token": _res["access_token"],
+                    }
+                    st.session_state.pop("_data_loaded", None)
+                    st.rerun()
+                else:
+                    st.error(_res.get("error", "登录失败"))
+    with _tab_signup:
+        _email2 = st.text_input("邮箱", key="signup_email")
+        _pwd2 = st.text_input("密码（至少 6 位）", type="password", key="signup_pwd")
+        if st.button("注册并登录", type="primary", use_container_width=True):
+            if not _email2 or len(_pwd2) < 6:
+                st.warning("请输入邮箱，密码至少 6 位")
+            else:
+                _res = db.sign_up(_email2, _pwd2)
+                if _res.get("ok"):
+                    if _res.get("access_token"):
+                        st.session_state["auth_user"] = {
+                            "id": _res["user_id"],
+                            "email": _email2.strip(),
+                            "access_token": _res["access_token"],
+                        }
+                        st.session_state.pop("_data_loaded", None)
+                        st.rerun()
+                    else:
+                        st.info("注册成功，请先到邮箱点击确认链接，再回来登录。")
+                else:
+                    st.error(_res.get("error", "注册失败"))
+    st.stop()
+
+
 def _is_cloud_deployment() -> bool:
     """判断是否运行在 Streamlit Cloud（云端多人访问需要会话隔离）。"""
     return os.path.exists("/mount/src")
@@ -140,7 +196,23 @@ def _get_agent() -> PersonalExplorerAgent:
     return PersonalExplorerAgent(storage_dir=storage_dir)
 
 
-agent = _get_agent()
+if _auth_enabled:
+    _user = st.session_state["auth_user"]
+    _user_id = _user["id"]
+    _token = _user["access_token"]
+    _storage_dir = f"waibao_data/users/{_user_id}"
+    if not st.session_state.get("_data_loaded"):
+        try:
+            db.download_user_data(_user_id, _token, _storage_dir)
+        except Exception:
+            pass
+        st.session_state["_data_loaded"] = True
+    agent = PersonalExplorerAgent(storage_dir=_storage_dir)
+else:
+    agent = _get_agent()
+    _user_id = ""
+    _token = ""
+    _storage_dir = ""
 
 
 # ---- 首次画像初始化 ---------------------------------------------------
@@ -153,6 +225,11 @@ if not agent.ltm.profile_initialized():
     if st.button("开始", type="primary"):
         agent.profile.apply_initial_answers(answers, llm=agent.llm)
         agent.evolution.save_profile(agent.profile, mark_initialized=True)
+        if _auth_enabled:
+            try:
+                db.upload_user_data(_user_id, _token, _storage_dir)
+            except Exception:
+                pass
         st.rerun()
     st.stop()
 
@@ -166,10 +243,19 @@ def _confirm_reset() -> None:
         st.rerun()
     if c2.button("确认重置", type="primary", use_container_width=True):
         _keep_auth = st.session_state.get("_authed", False)
+        _keep_user = st.session_state.get("auth_user")
         shutil.rmtree(agent.storage_dir, ignore_errors=True)
+        if _auth_enabled and _keep_user:
+            try:
+                db.clear_user_data(_keep_user["id"], _keep_user["access_token"])
+            except Exception:
+                pass
         st.session_state.clear()
         if _keep_auth:
             st.session_state["_authed"] = True
+        if _keep_user:
+            st.session_state["auth_user"] = _keep_user
+            st.session_state.pop("_data_loaded", None)
         st.rerun()
 
 
@@ -232,6 +318,11 @@ with st.sidebar:
             agent.history = []
             agent._save_history()
             st.session_state.messages = []
+            if _auth_enabled:
+                try:
+                    db.upload_user_data(_user_id, _token, _storage_dir)
+                except Exception:
+                    pass
             st.rerun()
         if st.button("🔄 重置全部记忆", key="reset_side", use_container_width=True):
             _confirm_reset()
@@ -256,6 +347,14 @@ with st.sidebar:
                             st.markdown(f"**{_role}**：{_m.get('content', '')}")
                     break
 
+    if _auth_enabled:
+        st.divider()
+        st.caption("👤 已登录：" + st.session_state["auth_user"].get("email", ""))
+        if st.button("🚪 退出登录", use_container_width=True):
+            st.session_state.pop("auth_user", None)
+            st.session_state.pop("_data_loaded", None)
+            st.rerun()
+
     st.divider()
     st.caption(
         "· 联网：写「搜索 xxx」\n"
@@ -268,6 +367,7 @@ with st.sidebar:
 _net_on = bool(os.environ.get("TAVILY_API_KEY"))
 _model_txt = f"{agent.llm.provider}/{agent.llm.model}" if agent.llm.enabled else "未配置"
 _net_badge = "🔍 联网搜索：已开启" if _net_on else "🔍 联网搜索：未配置"
+_account_badge = "🔐 账号已登录" if _auth_enabled else "🌐 访客模式"
 st.markdown(
     f"""
 <div class="waibao-hero">
@@ -278,6 +378,7 @@ st.markdown(
     <span class="waibao-badge">{_net_badge}</span>
     <span class="waibao-badge">🧠 画像：已建立</span>
     <span class="waibao-badge">📁 文件与工具</span>
+    <span class="waibao-badge">{_account_badge}</span>
   </div>
 </div>
 """,
@@ -296,6 +397,11 @@ if _clear_top:
     agent.history = []
     agent._save_history()
     st.session_state.messages = []
+    if _auth_enabled:
+        try:
+            db.upload_user_data(_user_id, _token, _storage_dir)
+        except Exception:
+            pass
     st.rerun()
 if _reset_top:
     _confirm_reset()
@@ -349,3 +455,8 @@ if prompt:
             placeholder.markdown("".join(parts))
         reply = "".join(parts).strip()
     st.session_state.messages.append({"role": "assistant", "content": reply})
+    if _auth_enabled:
+        try:
+            db.upload_user_data(_user_id, _token, _storage_dir)
+        except Exception:
+            st.toast("云端保存失败，请稍后再试。")

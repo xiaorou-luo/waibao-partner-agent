@@ -199,3 +199,26 @@ git push -u origin main
 - 可在 Secrets 里加 `ACCESS_PASSWORD = "你的密码"`，给网页加一道密码，防止陌生人滥用额度。
 - 免费云端的 `waibao_data/` 是临时的，重启后会清空；要长期保留记忆需再接一个免费数据库。
 - `读文件/列目录` 在云端只作用于仓库文件，不会碰到你本机文件；`联网搜索` 需再配 `TAVILY_API_KEY`。
+
+## 账号系统（跨设备保存历史）
+
+默认情况下，云端是「每个浏览器会话独立」，换设备或清缓存就会丢失历史。要「登录账号、跨设备找回自己的画像和聊天历史」，需要接入 Supabase（免费）。
+
+### 一次性配置
+
+1. 注册并登录 https://supabase.com，新建一个项目。
+2. 关闭邮箱验证（否则注册后要先去邮箱点确认）：Authentication → Providers → Email → 关闭 `Confirm email`。
+3. 建表：SQL Editor → New query → 粘贴 `supabase_setup.sql` 全部内容 → Run。
+4. 拿连接信息：Project Settings → API → 复制 `Project URL` 和 `anon public` 两个值。
+5. 填到云端 Secrets（本地则填到 `.env`）：
+
+   ```bash
+   SUPABASE_URL = "https://xxxx.supabase.co"
+   SUPABASE_ANON_KEY = "eyJ..."
+   ```
+
+6. 重新部署（云端）或重启网页（本机）。
+
+配置后，打开网页会先出现登录/注册页；每个账号的画像、记忆、聊天历史、归档对话都会跨设备保存在云端。
+
+> 说明：Supabase 免费额度足够作品集演示使用；密码由 Supabase 托管加密存储，代码里不接触明文。
