@@ -69,6 +69,7 @@ class PersonalExplorerAgent:
         self.summary: str = ""
         self.summary_file = self.storage_dir / "conversation_summary.txt"
         self.sessions_file = self.storage_dir / "conversation_sessions.json"
+        self.learning_log_file = self.storage_dir / "learning_log.json"
         self._process_note: str = ""
 
         self._load_persistent_state()
@@ -97,6 +98,11 @@ class PersonalExplorerAgent:
                 self.history = []
         if self.summary_file.exists():
             self.summary = self.summary_file.read_text(encoding="utf-8").strip()
+        if self.learning_log_file.exists():
+            try:
+                self.profile.update_log = json.loads(self.learning_log_file.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                self.profile.update_log = []
 
     # ---- 命令入口（规格 5.3 / 5.4） ------------------------------------
     def handle(self, text: str) -> None:
@@ -388,6 +394,7 @@ class PersonalExplorerAgent:
         self._learn_from_conversation(user_text, reply)
         self._maybe_summarize()
         self._save_history()
+        self._save_learning_log()
         self.evolution.save_profile(self.profile)
 
     def _maybe_summarize(self) -> None:
@@ -522,6 +529,14 @@ class PersonalExplorerAgent:
         self.history_file.write_text(
             json.dumps(self.history[-200:], ensure_ascii=False, indent=2),
             encoding="utf-8",
+        )
+
+    def _save_learning_log(self) -> None:
+        """把画像学习记录（update_log）持久化，保留最近 300 条供可视化。"""
+        log = self.profile.update_log[-300:]
+        self.learning_log_file.parent.mkdir(parents=True, exist_ok=True)
+        self.learning_log_file.write_text(
+            json.dumps(log, ensure_ascii=False, indent=2), encoding="utf-8"
         )
 
     def _system_prompt(self) -> str:

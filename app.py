@@ -21,6 +21,24 @@ from waibao.agent import PersonalExplorerAgent
 from waibao.llm import load_dotenv
 
 
+_FIELD_CN = {
+    "cognition.thinking_macro_first": "宏观优先",
+    "cognition.detail_assist_needed": "需要细节",
+    "cognition.logic_over_intuition": "逻辑vs直觉",
+    "cognition.depth_first": "深度优先",
+    "expression.structure_density": "结构化程度",
+    "expression.example_preference": "举例偏好",
+    "expression.abstraction_level": "抽象程度",
+    "expression.output_tone": "语气",
+    "domain.domain_depth_primary": "主领域深度",
+    "domain.domain_depth_secondary": "次领域深度",
+    "collaboration.decision_speed": "决策速度",
+    "collaboration.followup_tolerance": "追问耐受",
+    "collaboration.abandon_after_first_draft": "初稿后放弃",
+    "value_red_lines": "红线",
+}
+
+
 st.set_page_config(
     page_title="外脑伙伴",
     page_icon="🧠",
@@ -379,6 +397,30 @@ with st.sidebar:
                             _role = "你" if _m.get("role") == "user" else "外脑伙伴"
                             st.markdown(f"**{_role}**：{_m.get('content', '')}")
                     break
+
+    with st.expander("📚 学习记录", expanded=False):
+        _log = agent.profile.update_log
+        if not _log:
+            st.caption("还没有学习记录。聊几句之后，这里会显示它从你的对话中学到了什么。")
+        else:
+            _rows = []
+            for _r in reversed(_log[-50:]):
+                _f = _r.get("field", "")
+                _name = _FIELD_CN.get(_f, _f)
+                _b, _a = _r.get("before"), _r.get("after")
+                if isinstance(_b, (int, float)) and isinstance(_a, (int, float)):
+                    _d = round(_a - _b, 2)
+                    _change = ("+" if _d > 0 else "") + str(_d)
+                else:
+                    _change = f"{_b} → {_a}"
+                _rows.append({
+                    "时间": (_r.get("ts", "")[:16]).replace("T", " "),
+                    "画像": _name,
+                    "变化": _change,
+                    "原因": str(_r.get("reason", ""))[:40],
+                })
+            st.dataframe(_rows, use_container_width=True, hide_index=True)
+            st.caption("这是它从你的对话中自动观察并记录的画像变化。")
 
     if _auth_enabled:
         st.divider()

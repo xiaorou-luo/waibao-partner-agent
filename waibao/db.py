@@ -27,6 +27,7 @@ SYNC_FILES = (
     "conversation_history.json",
     "conversation_summary.txt",
     "conversation_sessions.json",
+    "learning_log.json",
 )
 
 
