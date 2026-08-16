@@ -479,11 +479,11 @@ class PersonalExplorerAgent:
         return data if isinstance(data, list) else []
 
     def _generate_title_summary(self, messages: list[dict[str, str]]) -> tuple[str, str]:
-        """为一段对话生成 ≤15 字标题 + 一句话总结；LLM 不可用时用规则兜底。"""
+        """为一段对话生成简洁完整的标题 + 一句话总结；LLM 不可用时用规则兜底。"""
         first_user = next(
             (m.get("content", "") for m in messages if m.get("role") == "user"), ""
         )
-        fallback_title = first_user.strip()[:15] or "新对话"
+        fallback_title = first_user.strip()[:30] or "新对话"
         fallback_summary = f"共 {len(messages)} 条消息，从「{first_user[:40]}」开始。"
         if not self.llm.enabled:
             return fallback_title, fallback_summary
@@ -494,10 +494,11 @@ class PersonalExplorerAgent:
         )
         prompt = (
             "请根据下面这段对话做两件事：\n"
-            "1. 生成一个标题，不超过 15 个字，准确概括主题；\n"
+            "1. 生成一个简洁完整的标题，准确概括这段对话的主题；"
+            "不用刻意控制字数，但应是一句话，不要为了短而截断语义。\n"
             "2. 用一句话（60 字以内）总结这段对话做了什么。\n\n"
             "请严格按下面格式回复，不要输出任何其他内容：\n"
-            "标题：<15字以内>\n"
+            "标题：<一句话>\n"
             "总结：<一句话>\n\n"
             "对话内容：\n" + convo
         )
@@ -513,7 +514,7 @@ class PersonalExplorerAgent:
                 title = s.split("：", 1)[-1].split(":", 1)[-1].strip() or fallback_title
             elif s.startswith("总结"):
                 summary = s.split("：", 1)[-1].split(":", 1)[-1].strip() or fallback_summary
-        return (title.strip()[:15] or fallback_title), (summary.strip() or fallback_summary)
+        return (title.strip()[:40] or fallback_title), (summary.strip() or fallback_summary)
 
     def archive_current_session(self) -> dict | None:
         """把当前对话生成标题+总结后归档；不修改 self.history（由调用方决定清空）。"""

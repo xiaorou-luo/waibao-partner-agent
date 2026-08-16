@@ -70,19 +70,22 @@ load_dotenv()
 st.markdown(
     """
 <style>
+.stApp {
+    background: #f7f8fb;
+}
 html, body, [class*="css"] {
     font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
                  "Microsoft YaHei", "Segoe UI", sans-serif;
-    color: #0f172a;
+    color: #1f2430;
 }
 /* 顶部品牌栏 */
 .waibao-hero {
-    background: linear-gradient(120deg, #0f172a 0%, #1e3a5f 55%, #2563eb 100%);
+    background: linear-gradient(120deg, #4f46e5 0%, #6366f1 55%, #818cf8 100%);
     color: #ffffff;
     padding: 1.35rem 1.6rem;
     border-radius: 16px;
     margin-bottom: 0.9rem;
-    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
+    box-shadow: 0 10px 28px rgba(79, 70, 229, 0.22);
 }
 .waibao-hero h1 {
     color: #ffffff;
@@ -91,7 +94,7 @@ html, body, [class*="css"] {
     letter-spacing: 0.5px;
 }
 .waibao-hero .sub {
-    color: #cbd5e1;
+    color: #e0e7ff;
     font-size: 0.92rem;
     margin: 0;
 }
@@ -100,9 +103,9 @@ html, body, [class*="css"] {
 }
 .waibao-badge {
     display: inline-block;
-    background: rgba(255, 255, 255, 0.14);
-    border: 1px solid rgba(255, 255, 255, 0.22);
-    color: #f1f5f9;
+    background: rgba(255, 255, 255, 0.18);
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    color: #ffffff;
     padding: 0.18rem 0.75rem;
     border-radius: 999px;
     font-size: 0.78rem;
@@ -111,11 +114,11 @@ html, body, [class*="css"] {
 /* 聊天气泡 */
 [data-testid="stChatMessage"] {
     background: #ffffff;
-    border: 1px solid #e2e8f0;
+    border: 1px solid #e8eaf0;
     border-radius: 14px;
     padding: 0.5rem 0.7rem;
     margin-bottom: 0.55rem;
-    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+    box-shadow: 0 2px 8px rgba(31, 36, 48, 0.05);
 }
 /* 输入框 */
 [data-testid="stChatInput"] {
@@ -359,104 +362,32 @@ with st.sidebar:
             if hasattr(agent, "_save_portrait"):
                 agent._save_portrait()
 
-    with st.expander("🔍 联网搜索", expanded=False):
-        _q = st.text_input("搜索关键词", key="web_q", placeholder="例如：2026 音乐产业趋势")
-        if st.button("搜索", key="web_go", use_container_width=True):
-            if not _q.strip():
-                st.warning("请输入关键词")
-            else:
-                with st.spinner("正在搜索…"):
-                    _r = tools.web_search_structured(_q.strip())
-                _r["query"] = _q.strip()
-                st.session_state["search_result"] = _r
-
-    with st.expander("📁 文件与工具", expanded=False):
-        st.caption("允许访问的范围")
-        _root_fn = getattr(tools, "allowed_root_description", None)
-        st.code(_root_fn() if _root_fn else "（项目目录）", language=None)
-        st.markdown(
-            "**直接发在聊天里即可**\n\n"
-            "· `搜索文件 关键词` —— 按文件名找\n"
-            "· `搜索内容 关键词` —— 按内容找\n"
-            "· `读文件 路径` —— 读取内容\n"
-            "· `列出文件` —— 看当前目录\n"
-            "· `搜索 xxx` —— 联网搜索\n"
-            "· `运行 xxx` —— 执行命令（本机需开启）"
-        )
-
-    with st.expander("🧹 数据管理", expanded=False):
-        if st.button("🗑 清空对话记录", key="clear_side", use_container_width=True):
-            agent.archive_current_session()
-            agent.history = []
-            agent._save_history()
-            st.session_state.messages = []
-            if _auth_enabled:
-                try:
-                    db.upload_user_data(_user_id, _token, _storage_dir)
-                except Exception:
-                    pass
-            st.rerun()
-        if st.button("🔄 重置全部记忆", key="reset_side", use_container_width=True):
-            _confirm_reset()
-
-    with st.expander("📜 历史对话", expanded=False):
-        _sessions = agent.list_sessions()
-        if not _sessions:
-            st.caption("还没有归档的对话。点「清空对话」会把当前对话自动保存到这里。")
-        else:
-            _rev = list(reversed(_sessions))
-            _labels = [f"{s.get('title', '未命名')}" for s in _rev]
-            _pick = st.selectbox("选择一段对话", _labels, key="hist_pick")
-            for _s in _rev:
-                if _s.get("title", "未命名") == _pick:
-                    st.caption(
-                        f"{_s.get('created_at', '')} · {_s.get('message_count', 0)} 条消息"
-                    )
-                    st.markdown("**总结**\n" + _s.get("summary", ""))
-                    with st.expander("查看完整对话"):
-                        for _m in _s.get("messages", []):
-                            _role = "你" if _m.get("role") == "user" else "外脑伙伴"
-                            st.markdown(f"**{_role}**：{_m.get('content', '')}")
-                    break
-
-    with st.expander("📚 学习记录", expanded=False):
-        _log = agent.profile.update_log
-        if not _log:
-            st.caption("还没有学习记录。聊几句之后，这里会显示它从你的对话中学到了什么。")
-        else:
-            _rows = []
-            for _r in reversed(_log[-50:]):
-                _f = _r.get("field", "")
-                _name = _FIELD_CN.get(_f, _f)
-                _b, _a = _r.get("before"), _r.get("after")
-                if isinstance(_b, (int, float)) and isinstance(_a, (int, float)):
-                    _d = round(_a - _b, 2)
-                    _change = ("+" if _d > 0 else "") + str(_d)
-                else:
-                    _change = f"{_b} → {_a}"
-                _rows.append({
-                    "时间": (_r.get("ts", "")[:16]).replace("T", " "),
-                    "画像": _name,
-                    "变化": _change,
-                    "原因": str(_r.get("reason", ""))[:40],
-                })
-            st.dataframe(_rows, use_container_width=True, hide_index=True)
-            st.caption("这是它从你的对话中自动观察并记录的画像变化。")
+    st.divider()
+    _sb1, _sb2 = st.columns(2)
+    if _sb1.button("🗑 清空对话", key="clear_side", use_container_width=True):
+        agent.archive_current_session()
+        agent.history = []
+        agent._save_history()
+        st.session_state.messages = []
+        if _auth_enabled:
+            try:
+                db.upload_user_data(_user_id, _token, _storage_dir)
+            except Exception:
+                pass
+        st.rerun()
+    if _sb2.button("🔄 重置", key="reset_side", use_container_width=True):
+        _confirm_reset()
 
     if _auth_enabled:
-        st.divider()
-        st.caption("👤 已登录：" + st.session_state["auth_user"].get("email", ""))
+        st.caption("👤 " + st.session_state["auth_user"].get("email", ""))
         if st.button("🚪 退出登录", use_container_width=True):
             st.session_state.pop("auth_user", None)
             st.session_state.pop("_data_loaded", None)
             st.rerun()
 
-    st.divider()
     st.caption(
-        "· 联网：写「搜索 xxx」\n"
-        "· 文件：写「读文件 / 搜索文件 / 搜索内容」\n"
-        "· 支持中/英/日/韩/西/法等语言\n"
-        "· 图片理解需视觉模型（如 gpt-4o）"
+        "· 联网、文件、历史、学习见右侧页签\n"
+        "· 支持中/英/日/韩/西/法等语言"
     )
 
 
@@ -505,56 +436,124 @@ if _reset_top:
     _confirm_reset()
 
 
-# ---- 搜索结果展示 ------------------------------------------------------
-if st.session_state.get("search_result"):
-    _r = st.session_state["search_result"]
-    st.subheader(f"🔍 搜索结果：{_r.get('query', '')}")
-    if not _r.get("ok"):
-        st.info(_r.get("message", "未配置联网搜索。"))
+# ---- 功能区页签 --------------------------------------------------------
+_tab_chat, _tab_search, _tab_history, _tab_learn, _tab_tools = st.tabs(
+    ["💬 对话", "🔍 联网搜索", "📜 历史对话", "📚 学习记录", "📁 文件工具"]
+)
+
+with _tab_chat:
+    if "messages" not in st.session_state:
+        st.session_state.messages = list(agent.history)
+
+    for msg in st.session_state.messages:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+
+    if agent.llm.supports_vision:
+        st.file_uploader("上传图片（视觉模型）", type=["png", "jpg", "jpeg"], key="upload_img")
     else:
-        if _r.get("answer"):
-            st.markdown("**摘要**")
-            st.markdown(_r["answer"])
-        if _r.get("results"):
-            st.markdown("**来源**")
-            for _it in _r["results"]:
-                st.markdown(f"- [{_it['title']}]({_it['url']})")
-                if _it.get("content"):
-                    st.caption(_it["content"][:200])
+        st.caption("💡 当前模型不支持图片，切换到 OpenAI 视觉模型后即可上传。")
+
+    prompt = st.chat_input("跟外脑伙伴说点什么…（可写：搜索 xxx / 搜索文件 / 读文件 / 运行命令）")
+
+    if prompt:
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
+        with st.chat_message("assistant"):
+            placeholder = st.empty()
+            parts: list[str] = []
+            for delta in agent.converse_stream(prompt):
+                parts.append(delta)
+                placeholder.markdown("".join(parts))
+            reply = "".join(parts).strip()
+        st.session_state.messages.append({"role": "assistant", "content": reply})
+        if _auth_enabled:
+            try:
+                db.upload_user_data(_user_id, _token, _storage_dir)
+            except Exception:
+                st.toast("云端保存失败，请稍后再试。")
+
+with _tab_search:
+    _q = st.text_input("搜索关键词", key="web_q", placeholder="例如：2026 音乐产业趋势")
+    if st.button("搜索", key="web_go", use_container_width=True):
+        if not _q.strip():
+            st.warning("请输入关键词")
         else:
-            st.info("没有搜到结果")
-    st.divider()
+            with st.spinner("正在搜索…"):
+                _r = tools.web_search_structured(_q.strip())
+            _r["query"] = _q.strip()
+            st.session_state["search_result"] = _r
+    if st.session_state.get("search_result"):
+        _r = st.session_state["search_result"]
+        st.subheader(f"🔍 搜索结果：{_r.get('query', '')}")
+        if not _r.get("ok"):
+            st.info(_r.get("message", "未配置联网搜索。"))
+        else:
+            if _r.get("answer"):
+                st.markdown("**摘要**")
+                st.markdown(_r["answer"])
+            if _r.get("results"):
+                st.markdown("**来源**")
+                for _it in _r["results"]:
+                    st.markdown(f"- [{_it['title']}]({_it['url']})")
+                    if _it.get("content"):
+                        st.caption(_it["content"][:200])
+            else:
+                st.info("没有搜到结果")
 
+with _tab_history:
+    _sessions = agent.list_sessions()
+    if not _sessions:
+        st.info("还没有归档的对话。点「清空对话」会把当前对话自动保存到这里。")
+    else:
+        _rev = list(reversed(_sessions))
+        _labels = [f"{s.get('title', '未命名')}" for s in _rev]
+        _pick = st.selectbox("选择一段对话", _labels, key="hist_pick")
+        for _s in _rev:
+            if _s.get("title", "未命名") == _pick:
+                st.caption(f"{_s.get('created_at', '')} · {_s.get('message_count', 0)} 条消息")
+                st.markdown("**总结**\n" + _s.get("summary", ""))
+                with st.expander("查看完整对话"):
+                    for _m in _s.get("messages", []):
+                        _role = "你" if _m.get("role") == "user" else "外脑伙伴"
+                        st.markdown(f"**{_role}**：{_m.get('content', '')}")
+                break
 
-# ---- 主聊天区 ----------------------------------------------------------
-if "messages" not in st.session_state:
-    st.session_state.messages = list(agent.history)
+with _tab_learn:
+    _log = agent.profile.update_log
+    if not _log:
+        st.info("还没有学习记录。聊几句之后，这里会显示它从你的对话中学到了什么。")
+    else:
+        _rows = []
+        for _r in reversed(_log[-50:]):
+            _f = _r.get("field", "")
+            _name = _FIELD_CN.get(_f, _f)
+            _b, _a = _r.get("before"), _r.get("after")
+            if isinstance(_b, (int, float)) and isinstance(_a, (int, float)):
+                _d = round(_a - _b, 2)
+                _change = ("+" if _d > 0 else "") + str(_d)
+            else:
+                _change = f"{_b} → {_a}"
+            _rows.append({
+                "时间": (_r.get("ts", "")[:16]).replace("T", " "),
+                "画像": _name,
+                "变化": _change,
+                "原因": str(_r.get("reason", ""))[:40],
+            })
+        st.dataframe(_rows, use_container_width=True, hide_index=True)
+        st.caption("这是它从你的对话中自动观察并记录的画像变化。")
 
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
-
-if agent.llm.supports_vision:
-    st.file_uploader("上传图片（视觉模型）", type=["png", "jpg", "jpeg"], key="upload_img")
-else:
-    st.caption("💡 当前模型不支持图片，切换到 OpenAI 视觉模型后即可上传。")
-
-prompt = st.chat_input("跟外脑伙伴说点什么…（可写：搜索 xxx / 搜索文件 / 读文件 / 运行命令）")
-
-if prompt:
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
-    with st.chat_message("assistant"):
-        placeholder = st.empty()
-        parts: list[str] = []
-        for delta in agent.converse_stream(prompt):
-            parts.append(delta)
-            placeholder.markdown("".join(parts))
-        reply = "".join(parts).strip()
-    st.session_state.messages.append({"role": "assistant", "content": reply})
-    if _auth_enabled:
-        try:
-            db.upload_user_data(_user_id, _token, _storage_dir)
-        except Exception:
-            st.toast("云端保存失败，请稍后再试。")
+with _tab_tools:
+    st.caption("允许访问的范围")
+    _root_fn = getattr(tools, "allowed_root_description", None)
+    st.code(_root_fn() if _root_fn else "（项目目录）", language=None)
+    st.markdown(
+        "**直接发在聊天里即可**\n\n"
+        "· `搜索文件 关键词` —— 按文件名找\n"
+        "· `搜索内容 关键词` —— 按内容找\n"
+        "· `读文件 路径` —— 读取内容\n"
+        "· `列出文件` —— 看当前目录\n"
+        "· `搜索 xxx` —— 联网搜索\n"
+        "· `运行 xxx` —— 执行命令（本机需开启）"
+    )
