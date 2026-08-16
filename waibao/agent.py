@@ -122,7 +122,7 @@ class PersonalExplorerAgent:
         self._learn(text)
 
         # 2) 组装上下文：系统人设 + 画像 + 最近对话
-        messages = self._prepare_messages(text)
+        messages, sources = self._prepare_messages(text)
 
         # 3) 流式回复
         parts: list[str] = []
@@ -134,6 +134,10 @@ class PersonalExplorerAgent:
             self.interface.stream(f"\n（生成出错：{exc}）")
         self.interface.stream("\n")
         reply = "".join(parts).strip()
+        block = self._sources_block(sources)
+        if block:
+            self.interface.stream(block + "\n")
+            reply += block
 
         # 4) 记住本轮 + 持久化
         self._commit_history(text, reply)
@@ -145,7 +149,7 @@ class PersonalExplorerAgent:
         if not self.llm.enabled:
             yield "（未配置 LLM API Key，请先设置再试。）"
             return
-        messages = self._prepare_messages(text)
+        messages, sources = self._prepare_messages(text)
         parts: list[str] = []
         try:
             for delta in self.llm.chat_stream(messages):
@@ -153,11 +157,15 @@ class PersonalExplorerAgent:
                 yield delta
         except Exception as exc:  # noqa: BLE001
             yield f"\n（生成出错：{exc}）"
+        block = self._sources_block(sources)
+        if block:
+            yield block
+            parts.append(block)
         self._commit_history(text, "".join(parts).strip())
 
-    def _prepare_messages(self, text: str) -> list[dict[str, str]]:
+    def _prepare_messages(self, text: str):
         """组装发给 LLM 的消息：系统人设 + 画像 + 最近对话 +（可选）工具结果。"""
-        tool_note = self._run_tools(text)
+        tool_note, sources = self._run_tools(text)
         user_content = (tool_note + "\n\n用户原始消息：" + text) if tool_note else text
         messages: list[dict[str, str]] = [
             {"role": "system", "content": self._system_prompt()}
@@ -169,7 +177,7 @@ class PersonalExplorerAgent:
             messages.append({"role": "system", "content": memory})
         messages.extend(self.history[-24:])
         messages.append({"role": "user", "content": user_content})
-        return messages
+        return messages, sources
 
     def _learn(self, text: str) -> None:
         """静默学习：显式信号 + 隐式信号（快速确认 / 重复提问）。"""
@@ -204,18 +212,39 @@ class PersonalExplorerAgent:
             + "\n".join(lines)
         )
 
-    def _run_tools(self, text: str) -> str:
-        """识别「搜索 / 读文件 / 列目录」请求并执行，返回工具结果（无则空串）。"""
+    def _run_tools(self, text: str):
+        """识别「搜索 / 读文件 / 列目录」请求并执行，返回 (工具结果文本, 来源列表)。"""
         m = re.search(r"(?:^|\s)(?:/搜|/search|搜索|搜一下|帮我搜|查一下)\s*(.+)", text)
         if m:
-            return "[联网搜索结果]\n" + tools.web_search(m.group(1).strip())
+            r = tools.web_search_structured(m.group(1).strip())
+            if r["ok"]:
+                note = "[联网搜索结果]\n" + tools.web_search(m.group(1).strip())
+                sources = [(it["title"], it["url"]) for it in r["results"]]
+            else:
+                note = "[联网搜索结果]\n" + r["message"]
+                sources = []
+            return note, sources
         m = re.search(r"(?:^|\s)(?:/读|读文件|打开文件)\s*(.+)", text)
         if m:
-            return "[文件内容]\n" + tools.read_file(m.group(1).strip())
+            path = m.group(1).strip()
+            return "[文件内容]\n" + tools.read_file(path), [(path, "")]
         m = re.search(r"(?:^|\s)(?:/列|列出文件|看看目录)\s*(.*)", text)
         if m:
-            return "[目录列表]\n" + tools.list_dir(m.group(1).strip() or ".")
-        return ""
+            return "[目录列表]\n" + tools.list_dir(m.group(1).strip() or "."), []
+        return "", []
+
+    @staticmethod
+    def _sources_block(sources) -> str:
+        """把来源整理成可点击的「参考来源」块（网页里是链接）。"""
+        if not sources:
+            return ""
+        lines = ["\n\n---\n**📎 参考来源**"]
+        for title, url in sources:
+            if url and url.startswith("http"):
+                lines.append(f"- [{title}]({url})")
+            elif title:
+                lines.append(f"- {title}")
+        return "\n".join(lines)
 
     def _commit_history(self, user_text: str, reply: str) -> None:
         self.history.append({"role": "user", "content": user_text})
@@ -310,6 +339,8 @@ class PersonalExplorerAgent:
             "\n\n回答规则：中文为主；用户偏好宏观就先给框架；需要细节就展开；"
             "如果用户想要完整方案但容易半途而废，就分小段给、每段问一下要不要继续。"
             "遇到模糊需求，只补一个最关键的缺口，不要一次性问一堆。"
+            "引用事实、数据或外部观点时，尽量给出对应的来源链接；"
+            "上下文里的联网搜索结果自带 URL，请直接引用它们。"
         )
 
     # ---- 画像初始化（规格 2.2） ----------------------------------------

@@ -20,11 +20,16 @@ def _allowed_root() -> Path:
     return Path(os.environ.get("WAIBao_ALLOWED_ROOT", str(default))).resolve()
 
 
-def web_search(query: str, max_results: int = 5) -> str:
-    """联网搜索，返回带摘要的结果文本。"""
+def web_search_structured(query: str, max_results: int = 5) -> dict:
+    """联网搜索，返回结构化结果 {ok, message, answer, results:[{title,url,content}]}。"""
     key = os.environ.get("TAVILY_API_KEY", "")
     if not key:
-        return "（未配置 TAVILY_API_KEY，无法联网搜索。到 tavily.com 申请免费 Key 后设置该环境变量即可。）"
+        return {
+            "ok": False,
+            "message": "（未配置 TAVILY_API_KEY，无法联网搜索。到 tavily.com 申请免费 Key 后设置该环境变量即可。）",
+            "answer": "",
+            "results": [],
+        }
     payload = {"query": query, "max_results": max_results, "search_depth": "basic"}
     req = urllib.request.Request(
         "https://api.tavily.com/search",
@@ -36,16 +41,26 @@ def web_search(query: str, max_results: int = 5) -> str:
         with urllib.request.urlopen(req, timeout=30) as resp:
             data = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
-        return f"（搜索失败：HTTP {exc.code} {exc.read().decode('utf-8','replace')[:200]}）"
+        return {"ok": False, "message": f"（搜索失败：HTTP {exc.code} {exc.read().decode('utf-8','replace')[:200]}）", "answer": "", "results": []}
     except Exception as exc:  # noqa: BLE001
-        return f"（搜索失败：{exc}）"
+        return {"ok": False, "message": f"（搜索失败：{exc}）", "answer": "", "results": []}
+    results = [
+        {"title": r.get("title", ""), "url": r.get("url", ""), "content": (r.get("content") or "")[:300]}
+        for r in data.get("results", [])[:max_results]
+    ]
+    return {"ok": True, "message": "", "answer": data.get("answer") or "", "results": results}
 
+
+def web_search(query: str, max_results: int = 5) -> str:
+    """联网搜索，返回带摘要的结果文本（兼容旧调用）。"""
+    r = web_search_structured(query, max_results)
+    if not r["ok"]:
+        return r["message"]
     lines: list[str] = []
-    answer = data.get("answer")
-    if answer:
-        lines.append(f"AI 摘要：{answer}")
-    for r in data.get("results", [])[:max_results]:
-        lines.append(f"- {r.get('title','')}\n  {r.get('url','')}\n  {r.get('content','')[:300]}")
+    if r["answer"]:
+        lines.append(f"AI 摘要：{r['answer']}")
+    for it in r["results"]:
+        lines.append(f"- {it['title']}\n  {it['url']}\n  {it['content']}")
     return "\n\n".join(lines) if lines else "（无结果）"
 
 
@@ -85,4 +100,3 @@ def list_dir(path: str = ".") -> str:
         return f"（目录不存在：{p}）"
     names = sorted(str(x.name) for x in p.iterdir())
     return "\n".join(f"- {n}" for n in names) if names else "（空目录）"
-
