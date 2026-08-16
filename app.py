@@ -614,7 +614,17 @@ with _tab_thoughts:
         st.info("还没有记下的念头。在左侧「💡 记一下」里随手丢一句话，它会在合适的对话里替你想起来。")
     else:
         _type_cn = {"rule": "规则", "todo": "待办", "idea": "灵感", "memo": "备忘"}
-        st.caption(f"共 {len(_thoughts)} 条")
+        _active_n = sum(1 for t in _thoughts if t.get("status") != "done")
+        _done_n = len(_thoughts) - _active_n
+        st.caption(f"活跃 {_active_n} 条 · 已完成 {_done_n} 条")
+        if _active_n >= 10:
+            st.info("你的念头攒了不少，建议回顾一下：做完的划掉、没用的删掉。")
+        if _done_n:
+            if st.button("🧹 清理已完成", use_container_width=True):
+                _rm = agent.cleanup_done_thoughts()
+                st.toast(f"已清理 {_rm} 条")
+                st.rerun()
+        st.divider()
         for _t in reversed(_thoughts):
             _done = _t.get("status") == "done"
             _c1, _c2, _c3 = st.columns([9, 1, 1])

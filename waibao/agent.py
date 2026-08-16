@@ -666,6 +666,15 @@ class PersonalExplorerAgent:
         self.thoughts = [t for t in self.thoughts if t.get("id") != thought_id]
         self._save_thoughts()
 
+    def cleanup_done_thoughts(self) -> int:
+        """删除所有已完成的念头，返回删除数量。"""
+        before = len(self.thoughts)
+        self.thoughts = [t for t in self.thoughts if t.get("status") != "done"]
+        removed = before - len(self.thoughts)
+        if removed:
+            self._save_thoughts()
+        return removed
+
     def mark_thought_done(self, thought_id: str) -> None:
         for t in self.thoughts:
             if t.get("id") == thought_id:
