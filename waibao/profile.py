@@ -147,6 +147,23 @@ _EXPLICIT_RULES: list[Tuple[re.Pattern, Tuple[str, ...], Any, str]] = [
 ]
 
 
+# LLM 自动学习时允许调整的数值字段（白名单，防止模型乱改字符串/列表字段）
+LEARNABLE_NUMERIC_FIELDS = {
+    "cognition.thinking_macro_first",
+    "cognition.detail_assist_needed",
+    "cognition.logic_over_intuition",
+    "cognition.depth_first",
+    "expression.structure_density",
+    "expression.example_preference",
+    "expression.abstraction_level",
+    "domain.domain_depth_primary",
+    "domain.domain_depth_secondary",
+    "collaboration.decision_speed",
+    "collaboration.followup_tolerance",
+    "collaboration.abandon_after_first_draft",
+}
+
+
 class ProfileSystem:
     """用户画像：初始化、更新（显式/隐式/手动）、时间衰减、校准、摘要。"""
 
@@ -308,6 +325,32 @@ class ProfileSystem:
                 records.append(self._apply((dim, fname), 0.02, "隐式信号：快速确认（画像吻合）", mode="implicit_delta"))
         elif kind == "repeated_question":
             self.profile["collaboration"]["carryover_patterns"].append(note or "重复询问同类问题")
+        return records
+
+    def apply_llm_signals(self, updates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """应用 LLM 从对话中自动观察到的偏好信号（持续吸收成长）。
+
+        只接受白名单内的数值字段，delta 限制在 [-0.2, 0.2]，
+        过小的变化（<0.02）直接忽略，避免模型过度解读造成画像抖动。
+        """
+        records: list[dict[str, Any]] = []
+        for u in updates or []:
+            if not isinstance(u, dict):
+                continue
+            field = u.get("field", "")
+            if field not in LEARNABLE_NUMERIC_FIELDS:
+                continue
+            delta = u.get("delta")
+            if not isinstance(delta, (int, float)):
+                continue
+            delta = max(-0.2, min(0.2, float(delta)))
+            if abs(delta) < 0.02:
+                continue
+            dim, fname = field.split(".", 1)
+            reason = str(u.get("reason", "从对话中自动观察到的偏好变化"))[:100]
+            records.append(
+                self._apply((dim, fname), delta, f"自动学习：{reason}", mode="implicit_delta")
+            )
         return records
 
     # ---- 时间衰减（规格 4.3） ------------------------------------------

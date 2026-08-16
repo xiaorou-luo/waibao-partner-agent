@@ -228,6 +228,53 @@ class PersonalExplorerAgent:
         elif any(w in text for w in ("又", "还是", "重复", "上次")):
             self.profile.apply_implicit("repeated_question", note=text[:40])
 
+    @staticmethod
+    def _extract_json(text: str):
+        """从 LLM 输出里稳健地提取 JSON 对象（容忍 markdown 代码块和前后文字）。"""
+        t = (text or "").strip()
+        if t.startswith("```"):
+            t = t.strip("`")
+            if t.lower().startswith("json"):
+                t = t[4:]
+        start, end = t.find("{"), t.rfind("}")
+        if start == -1 or end <= start:
+            return None
+        try:
+            return json.loads(t[start : end + 1])
+        except json.JSONDecodeError:
+            return None
+
+    def _learn_from_conversation(self, text: str, reply: str) -> None:
+        """对话后让 LLM 观察用户是否流露新偏好，自动微调画像（持续吸收成长）。
+
+        只在明确观察到偏好变化时更新；字段白名单和幅度限制都在 ProfileSystem 里，
+        失败静默，不影响主对话流程。
+        """
+        if not self.llm.enabled:
+            return
+        prompt = (
+            "你是用户画像观察员。请根据下面这轮对话，判断用户是否流露出新的、值得记录的偏好或习惯变化。\n\n"
+            "只能从以下字段选择，delta 表示变化方向（正=增强，负=减弱），范围 -0.2 到 0.2：\n"
+            "- cognition.thinking_macro_first 宏观优先\n"
+            "- cognition.detail_assist_needed 需要细节\n"
+            "- expression.structure_density 结构化/简洁\n"
+            "- expression.example_preference 喜欢举例\n"
+            "- expression.abstraction_level 抽象程度\n"
+            "- collaboration.decision_speed 决策速度\n"
+            "- collaboration.abandon_after_first_draft 初稿后想放弃\n\n"
+            "如果没有明显的新偏好，就输出 {\"updates\": []}。\n"
+            "只输出 JSON，不要任何解释或多余文字。\n\n"
+            f"用户：{text[:300]}\nAI：{reply[:300]}"
+        )
+        try:
+            raw = self.llm.chat([{"role": "user", "content": prompt}])
+            data = self._extract_json(raw)
+            if not data or not isinstance(data.get("updates"), list):
+                return
+            self.profile.apply_llm_signals(data["updates"])
+        except Exception:
+            pass
+
     def _retrieve_memory(self, text: str) -> str:
         """检索与当前话题相关的历史情景记忆，注入上下文。"""
         intent = self.engine.parse(text)
@@ -338,6 +385,7 @@ class PersonalExplorerAgent:
         if reply:
             self.history.append({"role": "assistant", "content": reply})
         self._remember_turn(user_text, reply)
+        self._learn_from_conversation(user_text, reply)
         self._maybe_summarize()
         self._save_history()
         self.evolution.save_profile(self.profile)
