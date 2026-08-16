@@ -179,6 +179,8 @@ class ProfileSystem:
         self.field_meta: dict[str, dict[str, Any]] = {}
         self.last_calibration_snapshot: dict[str, Any] = copy.deepcopy(DEFAULT_PROFILE)
         self.update_log: list[dict[str, Any]] = []
+        self.portrait: str = ""          # 个人化文字画像（对话构建，从零生长）
+        self.portrait_enabled: bool = True
         self._init_field_meta()
 
     # ---- 基础 ----------------------------------------------------------
@@ -411,6 +413,10 @@ class ProfileSystem:
             return None
         return self._apply((dim, fname), value, "用户手动调整画像（最高权重显式反馈）", mode="direct")
 
+    def set_portrait(self, text: str) -> None:
+        """更新个人化文字画像（对话构建的核心产物）。"""
+        self.portrait = (text or "").strip()
+
     # ---- 主动校准（规格 2.3） ------------------------------------------
     def calibration_report(self) -> str:
         lines: list[str] = []
@@ -442,6 +448,8 @@ class ProfileSystem:
     # ---- 查看画像（规格 5.3） ------------------------------------------
     def summary(self) -> str:
         lines = ["📊 当前画像"]
+        if self.portrait:
+            lines.append("\n【关于你】" + self.portrait)
         for dim, content in self.profile.items():
             if isinstance(content, dict):
                 lines.append(f"\n【{dim}】")

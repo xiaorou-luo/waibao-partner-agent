@@ -337,6 +337,23 @@ with st.sidebar:
         st.caption("举例偏好")
         st.progress(_exp["example_preference"])
         st.markdown("**红线**：" + "、".join(_p["value_red_lines"]))
+        st.divider()
+        st.caption("关于你 · 个人画像（对话构建）")
+        _pt = st.toggle("启用个人画像", value=agent.profile.portrait_enabled, key="portrait_enabled")
+        if _pt != agent.profile.portrait_enabled:
+            agent.profile.portrait_enabled = _pt
+            agent._save_portrait()
+            st.rerun()
+        _new_pt = st.text_area(
+            "画像内容（可直接修改）",
+            value=agent.profile.portrait,
+            key="portrait_text",
+            height=160,
+            placeholder="聊几句之后，这里会慢慢长出只属于你的画像…",
+        )
+        if _new_pt != agent.profile.portrait:
+            agent.profile.set_portrait(_new_pt)
+            agent._save_portrait()
 
     with st.expander("🔍 联网搜索", expanded=False):
         _q = st.text_input("搜索关键词", key="web_q", placeholder="例如：2026 音乐产业趋势")

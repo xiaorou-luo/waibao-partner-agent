@@ -70,6 +70,7 @@ class PersonalExplorerAgent:
         self.summary_file = self.storage_dir / "conversation_summary.txt"
         self.sessions_file = self.storage_dir / "conversation_sessions.json"
         self.learning_log_file = self.storage_dir / "learning_log.json"
+        self.portrait_file = self.storage_dir / "portrait.json"
         self._process_note: str = ""
 
         self._load_persistent_state()
@@ -103,6 +104,13 @@ class PersonalExplorerAgent:
                 self.profile.update_log = json.loads(self.learning_log_file.read_text(encoding="utf-8"))
             except (json.JSONDecodeError, OSError):
                 self.profile.update_log = []
+        if self.portrait_file.exists():
+            try:
+                data = json.loads(self.portrait_file.read_text(encoding="utf-8"))
+                self.profile.portrait = data.get("text", "")
+                self.profile.portrait_enabled = bool(data.get("enabled", True))
+            except (json.JSONDecodeError, OSError):
+                pass
 
     # ---- 命令入口（规格 5.3 / 5.4） ------------------------------------
     def handle(self, text: str) -> None:
@@ -281,6 +289,32 @@ class PersonalExplorerAgent:
         except Exception:
             pass
 
+    def _update_portrait(self, text: str, reply: str) -> None:
+        """对话后，像心理咨询师一样，把对用户的新理解融入个人画像文字。"""
+        if not self.llm.enabled:
+            return
+        current = self.profile.portrait or "（暂无画像）"
+        prompt = (
+            "你是用户画像构建师，像心理咨询师一样，通过对话逐步理解一个具体的人。\n"
+            "下面是你当前对这位用户的画像，以及刚刚发生的一轮对话。\n"
+            "请把新的理解融合进画像，输出更新后的完整画像文字。\n\n"
+            "要求：\n"
+            "1. 要具体、个人化，不要贴标签（不要写「她是内向型」这种分类）。\n"
+            "2. 保留仍然成立的内容，只修正或补充新的理解。\n"
+            "3. 控制在 200 字以内，宁精炼勿堆砌。\n"
+            "4. 如果这轮对话没有关于用户的新信息，就原样输出当前画像。\n\n"
+            f"当前画像：\n{current}\n\n"
+            f"刚刚的对话：\n用户：{text[:300]}\nAI：{reply[:300]}\n\n"
+            "只输出更新后的画像文字，不要任何解释。"
+        )
+        try:
+            raw = self.llm.chat([{"role": "user", "content": prompt}])
+            new = (raw or "").strip()
+            if new and new != current:
+                self.profile.set_portrait(new)
+        except Exception:
+            pass
+
     def _retrieve_memory(self, text: str) -> str:
         """检索与当前话题相关的历史情景记忆，注入上下文。"""
         intent = self.engine.parse(text)
@@ -392,9 +426,11 @@ class PersonalExplorerAgent:
             self.history.append({"role": "assistant", "content": reply})
         self._remember_turn(user_text, reply)
         self._learn_from_conversation(user_text, reply)
+        self._update_portrait(user_text, reply)
         self._maybe_summarize()
         self._save_history()
         self._save_learning_log()
+        self._save_portrait()
         self.evolution.save_profile(self.profile)
 
     def _maybe_summarize(self) -> None:
@@ -539,6 +575,18 @@ class PersonalExplorerAgent:
             json.dumps(log, ensure_ascii=False, indent=2), encoding="utf-8"
         )
 
+    def _save_portrait(self) -> None:
+        """持久化个人化文字画像（对话构建产物）及其生效开关。"""
+        self.portrait_file.parent.mkdir(parents=True, exist_ok=True)
+        self.portrait_file.write_text(
+            json.dumps(
+                {"text": self.profile.portrait, "enabled": self.profile.portrait_enabled},
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
     def _system_prompt(self) -> str:
         p = self.profile.snapshot()
         cog, exp, dom, col = p["cognition"], p["expression"], p["domain"], p["collaboration"]
@@ -555,7 +603,13 @@ class PersonalExplorerAgent:
             f"- 协作习惯：决策速度 {col['decision_speed']}、追问耐受 {col['followup_tolerance']}、"
             f"初稿后放弃概率 {col['abandon_after_first_draft']}\n"
             f"- 红线（务必避免）：{'、'.join(p['value_red_lines'])}"
-            "\n\n回答规则："
+            + (
+                "\n\n关于这位用户更个人化的理解（务必据此调整语气与方式）：\n"
+                + self.profile.portrait
+                if (self.profile.portrait and self.profile.portrait_enabled)
+                else ""
+            )
+            + "\n\n回答规则："
             "语言上，始终用「用户当前使用的语言」回复，支持中文、英文、日文、韩文、"
             "西班牙文、法文、德文等国际常用语言；用户用哪种语言提问，就用哪种语言回答，"
             "用户没有明确语言偏好时默认中文。"
