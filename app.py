@@ -282,7 +282,10 @@ if not agent.ltm.profile_initialized():
     st.markdown("先花 30 秒让我认识你，之后我会越用越懂你。")
     answers: dict[str, str] = {}
     for q in agent.profile.init_questions():
-        answers[q["id"]] = st.radio(q["question"], q["options"], key=q["id"])
+        if q.get("free_input"):
+            answers[q["id"]] = st.text_input(q["question"], key=q["id"])
+        else:
+            answers[q["id"]] = st.radio(q["question"], q["options"], key=q["id"])
     if st.button("开始", type="primary"):
         agent.profile.apply_initial_answers(answers, llm=agent.llm)
         agent.evolution.save_profile(agent.profile, mark_initialized=True)

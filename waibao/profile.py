@@ -66,10 +66,10 @@ DEFAULT_PROFILE: dict[str, Any] = {
 # ---------------------------------------------------------------------------
 INIT_QUESTIONS: list[dict[str, Any]] = [
     {"id": "macro_or_detail", "question": "你更倾向于我直接给出整体框架，还是先和你讨论细节？", "options": ["直接给框架", "先讨论细节", "都可以"]},
-    {"id": "music_role", "question": "你在音乐领域主要做制作、产业还是理论？", "options": ["制作", "产业", "理论"]},
+    {"id": "domain_field", "question": "你主要从事哪个领域？（如音乐、金融、教育、设计、法律等，写一个词即可）", "options": [], "free_input": True},
+    {"id": "domain_role", "question": "在你这个领域里，你主要做的是哪一类？", "options": ["制作 / 实践", "产业 / 经营", "理论 / 研究"]},
     {"id": "tone", "question": "你希望我的表达语气偏正式、随意还是中性？", "options": ["正式", "随意", "中性"]},
     {"id": "draft_habit", "question": "如果我已经生成了一个完整初稿，你通常是想马上使用，还是会继续修改？", "options": ["马上使用", "继续修改", "看情况"]},
-    {"id": "examples", "question": "需要我在回答中主动举例子吗？", "options": ["需要", "不需要", "偶尔"]},
 ]
 
 
@@ -79,10 +79,10 @@ _INIT_MAPPING: dict[str, dict[str, Tuple[str, str, Any]]] = {
         "先讨论细节": ("cognition", "thinking_macro_first", 0.3),
         "都可以": ("cognition", "thinking_macro_first", 0.6),
     },
-    "music_role": {
-        "制作": ("domain", "domain_depth_primary", 0.75),
-        "产业": ("domain", "domain_depth_primary", 0.7),
-        "理论": ("domain", "domain_depth_primary", 0.9),
+    "domain_role": {
+        "制作 / 实践": ("domain", "domain_depth_primary", 0.75),
+        "产业 / 经营": ("domain", "domain_depth_primary", 0.7),
+        "理论 / 研究": ("domain", "domain_depth_primary", 0.9),
     },
     "tone": {
         "正式": ("expression", "output_tone", "formal"),
@@ -94,11 +94,6 @@ _INIT_MAPPING: dict[str, dict[str, Tuple[str, str, Any]]] = {
         "继续修改": ("collaboration", "abandon_after_first_draft", 0.85),
         "看情况": ("collaboration", "abandon_after_first_draft", 0.6),
     },
-    "examples": {
-        "需要": ("expression", "example_preference", 0.7),
-        "不需要": ("expression", "example_preference", 0.1),
-        "偶尔": ("expression", "example_preference", 0.4),
-    },
 }
 
 # 自由回答 → 选项 的关键词兜底（未启用 LLM 时使用）
@@ -108,10 +103,10 @@ _KEYWORD_HINTS: dict[str, dict[str, list[str]]] = {
         "先讨论细节": ["细节", "讨论", "先聊", "慢慢"],
         "都可以": ["都行", "随便", "你定", "看你"],
     },
-    "music_role": {
-        "制作": ["制作", "创作", "写歌", "编曲", "录"],
-        "产业": ["产业", "行业", "经营", "厂牌", "经纪"],
-        "理论": ["理论", "学术", "研究", "乐理"],
+    "domain_role": {
+        "制作 / 实践": ["制作", "实践", "创作", "动手", "执行"],
+        "产业 / 经营": ["产业", "经营", "商业", "生意", "运营"],
+        "理论 / 研究": ["理论", "研究", "学术", "分析"],
     },
     "tone": {
         "正式": ["正式", "专业", "严肃"],
@@ -122,11 +117,6 @@ _KEYWORD_HINTS: dict[str, dict[str, list[str]]] = {
         "马上使用": ["马上用", "直接用", "不改", "上手"],
         "继续修改": ["修改", "继续改", "打磨", "完善"],
         "看情况": ["看情况", "不一定", "视情况"],
-    },
-    "examples": {
-        "不需要": ["不需要", "不用", "别举", "不要例", "少举", "不举"],
-        "需要": ["需要", "要例子", "给个例", "要举"],
-        "偶尔": ["偶尔", "有时候", "一点"],
     },
 }
 
@@ -219,6 +209,12 @@ class ProfileSystem:
         for qid, answer in answers.items():
             q = qmap.get(qid)
             if not q:
+                continue
+            if qid == "domain_field":
+                text = (answer or "").strip()
+                if text:
+                    self._apply(("domain", "domain_primary"), text, "画像初始化：主领域", mode="direct")
+                    self.meta["init_domain_field"] = text
                 continue
             options = q["options"]
             matched = answer if answer in options else ""
