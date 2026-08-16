@@ -340,15 +340,31 @@ with st.sidebar:
     with st.expander("📧 邮箱配置", expanded=False):
         if agent.mail_user:
             st.caption("当前邮箱：" + agent.mail_user)
-        _mu = st.text_input("邮箱地址", key="mail_user_in", placeholder="例如 xxxx@qq.com")
-        _mp = st.text_input("授权码（16位）", key="mail_pass_in", type="password")
-        if st.button("保存邮箱配置", use_container_width=True):
-            if _mu.strip() and _mp.strip():
-                agent.set_mail_config(_mu, _mp)
-                st.toast("邮箱配置已保存")
-                st.rerun()
+            if not st.session_state.get("mail_change"):
+                if st.button("更换邮箱", use_container_width=True):
+                    st.session_state["mail_change"] = True
+                    st.rerun()
             else:
-                st.warning("邮箱和授权码都要填")
+                _mu = st.text_input("新邮箱地址", key="mail_user_in", placeholder="例如 xxxx@qq.com")
+                _mp = st.text_input("授权码（16位）", key="mail_pass_in", type="password")
+                if st.button("保存", use_container_width=True):
+                    if _mu.strip() and _mp.strip():
+                        agent.set_mail_config(_mu, _mp)
+                        st.session_state.pop("mail_change", None)
+                        st.toast("已更新")
+                        st.rerun()
+                    else:
+                        st.warning("邮箱和授权码都要填")
+        else:
+            _mu = st.text_input("邮箱地址", key="mail_user_in", placeholder="例如 xxxx@qq.com")
+            _mp = st.text_input("授权码（16位）", key="mail_pass_in", type="password")
+            if st.button("保存邮箱配置", use_container_width=True):
+                if _mu.strip() and _mp.strip():
+                    agent.set_mail_config(_mu, _mp)
+                    st.toast("邮箱配置已保存")
+                    st.rerun()
+                else:
+                    st.warning("邮箱和授权码都要填")
         st.caption("给自己发邮件记灵感，再点下面的「同步邮件」。")
 
     if agent.mail_user or mail.configured():
