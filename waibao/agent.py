@@ -66,6 +66,7 @@ class PersonalExplorerAgent:
         self.history_file = self.storage_dir / "conversation_history.json"
         self.summary: str = ""
         self.summary_file = self.storage_dir / "conversation_summary.txt"
+        self._process_note: str = ""
 
         self._load_persistent_state()
         self.interface.profile_provider = lambda: self.profile.profile
@@ -125,6 +126,7 @@ class PersonalExplorerAgent:
         messages, sources = self._prepare_messages(text)
 
         # 3) 流式回复
+        self.interface.stream(self._process_note + "\n")
         parts: list[str] = []
         try:
             for delta in self.llm.chat_stream(messages):
@@ -150,6 +152,7 @@ class PersonalExplorerAgent:
             yield "（未配置 LLM API Key，请先设置再试。）"
             return
         messages, sources = self._prepare_messages(text)
+        yield f"_{self._process_note}_\n\n"
         parts: list[str] = []
         try:
             for delta in self.llm.chat_stream(messages):
@@ -177,7 +180,25 @@ class PersonalExplorerAgent:
             messages.append({"role": "system", "content": memory})
         messages.extend(self.history[-24:])
         messages.append({"role": "user", "content": user_content})
+        self._process_note = self._build_process_note(tool_note, memory)
         return messages, sources
+
+    def _build_process_note(self, tool_note: str, memory: str) -> str:
+        """把 agent 正在做的事整理成一行「过程提示」，让思考可见。"""
+        steps: list[str] = []
+        if "联网搜索" in tool_note:
+            steps.append("🔍 正在联网搜索并整理来源")
+        elif "文件内容" in tool_note:
+            steps.append("📄 正在读取文件")
+        elif "目录列表" in tool_note:
+            steps.append("📂 正在列出目录")
+        if memory:
+            steps.append("🧠 检索你的历史记忆")
+        if self.summary:
+            steps.append("📌 结合更早对话摘要")
+        if not steps:
+            steps.append("💭 结合你的画像思考")
+        return " · ".join(steps)
 
     def _learn(self, text: str) -> None:
         """静默学习：显式信号 + 隐式信号（快速确认 / 重复提问）。"""
