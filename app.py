@@ -15,6 +15,7 @@ import shutil
 
 import streamlit as st
 
+from waibao import tools
 from waibao.agent import PersonalExplorerAgent
 
 
@@ -86,6 +87,17 @@ with st.sidebar:
     st.progress(_exp["example_preference"])
     st.caption("红线：" + "、".join(_p["value_red_lines"]))
     st.divider()
+    st.subheader("🔍 联网搜索")
+    _q = st.text_input("搜索关键词", key="web_q", placeholder="例如：2026 音乐产业趋势")
+    if st.button("搜索", key="web_go", use_container_width=True):
+        if not _q.strip():
+            st.warning("请输入关键词")
+        else:
+            with st.spinner("正在搜索…"):
+                _r = tools.web_search_structured(_q.strip())
+            _r["query"] = _q.strip()
+            st.session_state["search_result"] = _r
+    st.divider()
     if st.button("清空对话记录"):
         agent.history = []
         agent._save_history()
@@ -96,7 +108,7 @@ with st.sidebar:
         st.cache_resource.clear()
         st.rerun()
     st.caption(
-        "联网搜索：在输入框写「搜索 xxx」，需设置 TAVILY_API_KEY。\n"
+        "联网搜索：用上面的搜索框，或直接在聊天里写「搜索 xxx」。\n"
         "读文件：写「读文件 路径」或「列出文件」。\n"
         "图片理解：需视觉模型（如 OpenAI gpt-4o），当前 DeepSeek-chat 不支持。"
     )
@@ -104,6 +116,25 @@ with st.sidebar:
 
 # ---- 主聊天区 --------------------------------------------------------
 st.title("外脑伙伴")
+
+if st.session_state.get("search_result"):
+    _r = st.session_state["search_result"]
+    st.subheader(f"🔍 搜索结果：{_r.get('query', '')}")
+    if not _r.get("ok"):
+        st.info(_r.get("message", "未配置联网搜索。"))
+    else:
+        if _r.get("answer"):
+            st.markdown("**摘要**")
+            st.markdown(_r["answer"])
+        if _r.get("results"):
+            st.markdown("**来源**")
+            for _it in _r["results"]:
+                st.markdown(f"- [{_it['title']}]({_it['url']})")
+                if _it.get("content"):
+                    st.caption(_it["content"][:200])
+        else:
+            st.info("没有搜到结果")
+    st.divider()
 
 if "messages" not in st.session_state:
     st.session_state.messages = list(agent.history)
