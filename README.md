@@ -222,3 +222,16 @@ git push -u origin main
 配置后，打开网页会先出现登录/注册页；每个账号的画像、记忆、聊天历史、归档对话都会跨设备保存在云端。
 
 > 说明：Supabase 免费额度足够作品集演示使用；密码由 Supabase 托管加密存储，代码里不接触明文。
+
+### 密码重置（忘记密码）配置
+
+代码已支持「忘记密码 → 发邮件 → 点链接设新密码」。要让邮件里的链接跳回网页并正确设置密码，还需要在 Supabase 后台做两步：
+
+1. **设置 Site URL**：Authentication → URL Configuration → Site URL 填你的应用地址（例如 `https://你的应用.streamlit.app`）。
+2. **改重置密码邮件模板**：Authentication → Email Templates → Reset password，把模板里的链接换成：
+
+   ```html
+   <p><a href="{{ .SiteURL }}?type=recovery&access_token={{ .Token }}">点击这里设置新密码</a></p>
+   ```
+
+如果不做这两步，邮件里的链接会打开空白页；此时可以在 Supabase 后台 Authentication → Users 里手动帮用户重置密码作为兜底。

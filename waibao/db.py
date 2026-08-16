@@ -138,6 +138,25 @@ def reset_password(email: str) -> dict:
         return {"ok": False, "error": f"无法连接 Supabase：{exc}"}
 
 
+def update_password(access_token: str, new_password: str) -> dict:
+    """用密码重置邮件里的 token 设置新密码。返回 {ok, error}。"""
+    url, _ = _cfg()
+    req = urllib.request.Request(
+        f"{url}/auth/v1/user",
+        data=json.dumps({"password": new_password}).encode("utf-8"),
+        headers=_headers(access_token),
+        method="PUT",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            resp.read()
+        return {"ok": True}
+    except urllib.error.HTTPError as exc:
+        return {"ok": False, "error": _parse_error(exc.read().decode("utf-8", "replace"))}
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": f"无法连接 Supabase：{exc}"}
+
+
 def _rest(
     method: str,
     path: str,

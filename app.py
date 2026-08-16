@@ -135,6 +135,24 @@ if _pwd and not st.session_state.get("_authed"):
 # ---- 账号登录 / 注册（配置了 Supabase 时启用） ------------------------
 _auth_enabled = db.configured()
 if _auth_enabled and not st.session_state.get("auth_user"):
+    # 密码重置邮件里的链接会带 type=recovery&access_token=...
+    if st.query_params.get("type") == "recovery" and st.query_params.get("access_token"):
+        st.title("🔐 设置新密码")
+        st.markdown("输入你的新密码（至少 6 位）。")
+        _np = st.text_input("新密码", type="password", key="new_pwd")
+        _np2 = st.text_input("再次输入新密码", type="password", key="new_pwd2")
+        if st.button("保存新密码", type="primary", use_container_width=True):
+            if len(_np) < 6 or _np != _np2:
+                st.warning("密码至少 6 位，且两次输入要一致")
+            else:
+                _r = db.update_password(st.query_params["access_token"], _np)
+                if _r.get("ok"):
+                    st.success("密码已更新，请返回登录页重新登录。")
+                    st.query_params.clear()
+                else:
+                    st.error(_r.get("error", "更新失败，可能链接已过期，请重新发送重置邮件。"))
+        st.stop()
+
     st.title("🧠 外脑伙伴")
     st.markdown("登录后，你的画像、记忆和聊天历史会跨设备保存在云端。")
     _tab_login, _tab_signup = st.tabs(["登录", "注册"])
