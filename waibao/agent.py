@@ -123,10 +123,12 @@ class PersonalExplorerAgent:
         self._learn(text)
 
         # 2) 组装上下文：系统人设 + 画像 + 最近对话
-        messages, sources = self._prepare_messages(text)
+        messages, sources, raw_results = self._prepare_messages(text)
 
         # 3) 流式回复
         self.interface.stream(self._process_note + "\n")
+        if raw_results:
+            self.interface.stream(raw_results + "\n\n")
         parts: list[str] = []
         try:
             for delta in self.llm.chat_stream(messages):
@@ -151,8 +153,10 @@ class PersonalExplorerAgent:
         if not self.llm.enabled:
             yield "（未配置 LLM API Key，请先设置再试。）"
             return
-        messages, sources = self._prepare_messages(text)
+        messages, sources, raw_results = self._prepare_messages(text)
         yield f"_{self._process_note}_\n\n"
+        if raw_results:
+            yield raw_results + "\n\n"
         parts: list[str] = []
         try:
             for delta in self.llm.chat_stream(messages):
@@ -168,7 +172,7 @@ class PersonalExplorerAgent:
 
     def _prepare_messages(self, text: str):
         """组装发给 LLM 的消息：系统人设 + 画像 + 最近对话 +（可选）工具结果。"""
-        tool_note, sources = self._run_tools(text)
+        tool_note, sources, raw_results = self._run_tools(text)
         user_content = (tool_note + "\n\n用户原始消息：" + text) if tool_note else text
         messages: list[dict[str, str]] = [
             {"role": "system", "content": self._system_prompt()}
@@ -181,7 +185,7 @@ class PersonalExplorerAgent:
         messages.extend(self.history[-24:])
         messages.append({"role": "user", "content": user_content})
         self._process_note = self._build_process_note(tool_note, memory)
-        return messages, sources
+        return messages, sources, raw_results
 
     def _build_process_note(self, tool_note: str, memory: str) -> str:
         """把 agent 正在做的事整理成一行「过程提示」，让思考可见。"""
@@ -234,25 +238,32 @@ class PersonalExplorerAgent:
         )
 
     def _run_tools(self, text: str):
-        """识别「搜索 / 读文件 / 列目录」请求并执行，返回 (工具结果文本, 来源列表)。"""
+        """识别「搜索 / 读文件 / 列目录」请求并执行，返回 (工具结果文本, 来源列表, 展示用结果)。"""
         m = re.search(r"(?:^|\s)(?:/搜|/search|搜索|搜一下|帮我搜|查一下)\s*(.+)", text)
         if m:
             r = tools.web_search_structured(m.group(1).strip())
             if r["ok"]:
                 note = "[联网搜索结果]\n" + tools.web_search(m.group(1).strip())
                 sources = [(it["title"], it["url"]) for it in r["results"]]
+                lines = ["**🔍 实时搜索结果**"]
+                for it in r["results"]:
+                    lines.append(f"- [{it['title']}]({it['url']})")
+                    if it["content"]:
+                        lines.append(f"  {it['content'][:140]}")
+                raw = "\n".join(lines)
             else:
                 note = "[联网搜索结果]\n" + r["message"]
                 sources = []
-            return note, sources
+                raw = ""
+            return note, sources, raw
         m = re.search(r"(?:^|\s)(?:/读|读文件|打开文件)\s*(.+)", text)
         if m:
             path = m.group(1).strip()
-            return "[文件内容]\n" + tools.read_file(path), [(path, "")]
+            return "[文件内容]\n" + tools.read_file(path), [(path, "")], ""
         m = re.search(r"(?:^|\s)(?:/列|列出文件|看看目录)\s*(.*)", text)
         if m:
-            return "[目录列表]\n" + tools.list_dir(m.group(1).strip() or "."), []
-        return "", []
+            return "[目录列表]\n" + tools.list_dir(m.group(1).strip() or "."), [], ""
+        return "", [], ""
 
     @staticmethod
     def _sources_block(sources) -> str:
