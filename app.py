@@ -54,6 +54,7 @@ try:
         "LLM_MODEL",
         "TAVILY_API_KEY",
         "ACCESS_PASSWORD",
+        "ADMIN_PASSWORD",
         "SUPABASE_URL",
         "SUPABASE_ANON_KEY",
     ):
@@ -425,6 +426,24 @@ with st.sidebar:
             st.session_state.pop("_data_loaded", None)
             st.rerun()
 
+    _admin_pwd = os.environ.get("ADMIN_PASSWORD", "")
+    if _admin_pwd:
+        st.divider()
+        if st.session_state.get("is_admin"):
+            st.caption("🔓 管理员已登录")
+            if st.button("退出管理员", use_container_width=True):
+                st.session_state.pop("is_admin", None)
+                st.rerun()
+        else:
+            with st.expander("🔐 管理", expanded=False):
+                _ap = st.text_input("管理员密码", type="password", key="admin_pwd")
+                if st.button("进入管理", use_container_width=True):
+                    if _ap == _admin_pwd:
+                        st.session_state["is_admin"] = True
+                        st.rerun()
+                    else:
+                        st.error("密码不对")
+
     st.caption(
         "· 联网、文件、历史、学习见右侧页签\n"
         "· 支持中/英/日/韩/西/法等语言"
@@ -473,9 +492,12 @@ if _reset_top:
 
 
 # ---- 功能区页签 --------------------------------------------------------
-_tab_search, _tab_history, _tab_learn, _tab_tools, _tab_thoughts = st.tabs(
-    ["🔍 联网搜索", "📜 历史对话", "📚 学习记录", "📁 文件工具", "💡 念头"]
-)
+_tab_labels = ["🔍 联网搜索", "📜 历史对话", "📚 学习记录", "📁 文件工具", "💡 念头"]
+if st.session_state.get("is_admin"):
+    _tab_labels.append("🔐 管理")
+_tabs = st.tabs(_tab_labels)
+_tab_search, _tab_history, _tab_learn, _tab_tools, _tab_thoughts = _tabs[:5]
+_admin_tab = _tabs[5] if len(_tabs) > 5 else None
 
 with _tab_search:
     _q = st.text_input("搜索关键词", key="web_q", placeholder="例如：2026 音乐产业趋势")
@@ -569,22 +591,52 @@ with _tab_thoughts:
         _type_cn = {"rule": "规则", "todo": "待办", "idea": "灵感", "memo": "备忘"}
         st.caption(f"共 {len(_thoughts)} 条")
         for _t in reversed(_thoughts):
-            _c1, _c2 = st.columns([10, 1])
+            _done = _t.get("status") == "done"
+            _c1, _c2, _c3 = st.columns([9, 1, 1])
             with _c1:
-                st.markdown(
-                    f"**{_type_cn.get(_t.get('type', 'memo'), '备忘')}** · {_t.get('text', '')}"
-                )
+                _txt = _t.get("text", "")
+                if _done:
+                    st.markdown(f"~~{_txt}~~")
+                else:
+                    st.markdown(
+                        f"**{_type_cn.get(_t.get('type', 'memo'), '备忘')}** · {_txt}"
+                    )
             with _c2:
+                if _done:
+                    if st.button("↩️", key=f"undo_{_t.get('id')}", help="恢复为未完成"):
+                        agent.mark_thought_active(_t.get("id"))
+                        st.rerun()
+                else:
+                    if st.button("✅", key=f"done_{_t.get('id')}", help="标记完成"):
+                        agent.mark_thought_done(_t.get("id"))
+                        st.rerun()
+            with _c3:
                 if st.button("🗑", key=f"del_{_t.get('id')}", help="删除这条"):
                     agent.delete_thought(_t.get("id"))
                     st.rerun()
+
+if _admin_tab is not None:
+    with _admin_tab:
+        st.markdown("**🔐 管理员面板**")
+        _active_n = sum(1 for t in agent.thoughts if t.get("status") != "done")
+        _done_n = sum(1 for t in agent.thoughts if t.get("status") == "done")
+        st.markdown(
+            f"- 念头总数：{len(agent.thoughts)}（活跃 {_active_n} · 已完成 {_done_n}）\n"
+            f"- 历史对话：{len(agent.list_sessions())} 段\n"
+            f"- 学习记录：{len(agent.profile.update_log)} 条"
+        )
+        st.divider()
+        if st.button("🗑 清空所有念头", type="primary", use_container_width=True):
+            agent.thoughts = []
+            agent._save_thoughts()
+            st.rerun()
 
 
 st.divider()
 
 
 # ---- 主动提醒（用户开启后，进入页面主动摆出念头） --------------------
-_reminders = [t for t in agent.thoughts if t.get("remind")]
+_reminders = [t for t in agent.thoughts if t.get("remind") and t.get("status") != "done"]
 if agent.notify_enabled and _reminders:
     _type_cn2 = {"rule": "规则", "todo": "待办", "idea": "灵感", "memo": "备忘"}
     st.markdown("**🔔 想起来了** —— 你之前记下的这些，现在可能用得上：")

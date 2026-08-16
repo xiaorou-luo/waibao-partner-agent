@@ -645,6 +645,7 @@ class PersonalExplorerAgent:
             "text": text,
             "type": ttype,
             "remind": ttype == "rule",
+            "status": "active",
             "created_at": _now(),
         }
         self.thoughts.append(thought)
@@ -653,6 +654,20 @@ class PersonalExplorerAgent:
 
     def delete_thought(self, thought_id: str) -> None:
         self.thoughts = [t for t in self.thoughts if t.get("id") != thought_id]
+        self._save_thoughts()
+
+    def mark_thought_done(self, thought_id: str) -> None:
+        for t in self.thoughts:
+            if t.get("id") == thought_id:
+                t["status"] = "done"
+                break
+        self._save_thoughts()
+
+    def mark_thought_active(self, thought_id: str) -> None:
+        for t in self.thoughts:
+            if t.get("id") == thought_id:
+                t["status"] = "active"
+                break
         self._save_thoughts()
 
     def sync_mail_thoughts(self) -> int:
@@ -671,6 +686,7 @@ class PersonalExplorerAgent:
                 "text": text,
                 "type": ttype,
                 "remind": ttype == "rule",
+                "status": "active",
                 "created_at": _now(),
             })
             added += 1
@@ -680,11 +696,12 @@ class PersonalExplorerAgent:
 
     def _recall_thoughts(self, text: str) -> list[dict]:
         """召回与当前话题相关的念头：先粗筛（bigram），再用 LLM 精筛语义。"""
-        if not self.thoughts:
+        active = [t for t in self.thoughts if t.get("status") != "done"]
+        if not active:
             return []
         text_tokens = _tokenize(text)
         candidates: list[dict] = []
-        for t in self.thoughts:
+        for t in active:
             if len(text_tokens & _tokenize(t.get("text", ""))) >= 1:
                 candidates.append(t)
         if not candidates:
