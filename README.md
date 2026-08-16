@@ -152,3 +152,26 @@ git push -u origin main
 ```
 
 仓库内置 `.github/workflows/demo.yml`：每次 push 自动跑 `python3 demo.py` 冒烟测试。
+
+## 部署成公开链接（任何人任何设备可打开）
+
+`localhost:8501` 只有本机能访问；要让任何人在手机上点开，需部署到云端。
+免费方案：Streamlit Community Cloud（https://share.streamlit.io）。
+
+步骤：
+
+1. 把 GitHub 仓库设为 Public（Settings → General → Danger Zone → Change visibility）。
+2. 打开 https://share.streamlit.io → New app → 用 GitHub 登录并授权。
+3. 选择仓库 `waibao-partner-agent`，Main file path 填 `app.py`。
+4. 在 Advanced settings 的 Secrets 里填：
+   ```
+   LLM_PROVIDER = "deepseek"
+   LLM_API_KEY = "sk-你的密钥"
+   ```
+5. 点 Deploy，得到 `https://xxx.streamlit.app` 公开链接。
+
+注意：
+
+- 公开链接意味着任何人打开都会消耗你的 DeepSeek 额度，建议演示时用小额度 Key。
+- 免费云端的 `waibao_data/` 是临时的，重启后会清空；要长期保留记忆需再接一个免费数据库。
+- `读文件/列目录` 在云端只作用于仓库文件，不会碰到你本机文件；`联网搜索` 需再配 `TAVILY_API_KEY`。

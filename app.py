@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 
 import streamlit as st
@@ -18,6 +19,14 @@ from waibao.agent import PersonalExplorerAgent
 
 
 st.set_page_config(page_title="外脑伙伴", page_icon="🧠", layout="wide")
+
+# 部署到 Streamlit Cloud 时，从平台 Secrets 读取密钥（本地则用 .env）
+try:
+    for _key in ("LLM_PROVIDER", "LLM_API_KEY", "LLM_MODEL", "TAVILY_API_KEY"):
+        if _key in st.secrets:
+            os.environ.setdefault(_key, str(st.secrets[_key]))
+except Exception:
+    pass
 
 
 @st.cache_resource
@@ -98,4 +107,3 @@ if prompt:
             placeholder.markdown("".join(parts))
         reply = "".join(parts).strip()
     st.session_state.messages.append({"role": "assistant", "content": reply})
-
