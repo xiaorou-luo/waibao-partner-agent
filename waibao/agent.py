@@ -655,6 +655,29 @@ class PersonalExplorerAgent:
         self.thoughts = [t for t in self.thoughts if t.get("id") != thought_id]
         self._save_thoughts()
 
+    def sync_mail_thoughts(self) -> int:
+        """从邮箱拉取灵感邮件转成念头，返回新增数量。"""
+        from . import mail
+
+        texts = mail.fetch_inspirations()
+        added = 0
+        for text in texts:
+            text = (text or "").strip()
+            if not text:
+                continue
+            ttype = self._classify_thought(text)
+            self.thoughts.append({
+                "id": uuid4().hex[:12],
+                "text": text,
+                "type": ttype,
+                "remind": ttype == "rule",
+                "created_at": _now(),
+            })
+            added += 1
+        if added:
+            self._save_thoughts()
+        return added
+
     def _recall_thoughts(self, text: str) -> list[dict]:
         """召回与当前话题相关的念头：先粗筛（bigram），再用 LLM 精筛语义。"""
         if not self.thoughts:

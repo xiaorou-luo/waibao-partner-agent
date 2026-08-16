@@ -16,7 +16,7 @@ import uuid
 
 import streamlit as st
 
-from waibao import db, tools
+from waibao import db, mail, tools
 from waibao.agent import PersonalExplorerAgent
 from waibao.llm import load_dotenv
 
@@ -335,6 +335,20 @@ with st.sidebar:
             st.rerun()
         else:
             st.warning("先写一句话再记下")
+
+    if mail.configured():
+        if st.button(
+            "📥 同步邮件",
+            key="mail_sync",
+            use_container_width=True,
+            help="从邮箱拉取你发给自己的一句话灵感邮件",
+        ):
+            _n = agent.sync_mail_thoughts()
+            if _n:
+                st.toast(f"已同步 {_n} 条念头")
+                st.rerun()
+            else:
+                st.info("没有找到新的灵感邮件")
 
     _nt = st.toggle(
         "🔔 主动提醒",
