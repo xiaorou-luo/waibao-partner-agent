@@ -639,10 +639,12 @@ class PersonalExplorerAgent:
         text = (text or "").strip()
         if not text:
             return None
+        ttype = self._classify_thought(text)
         thought = {
             "id": uuid4().hex[:12],
             "text": text,
-            "type": self._classify_thought(text),
+            "type": ttype,
+            "remind": ttype == "rule",
             "created_at": _now(),
         }
         self.thoughts.append(thought)
@@ -654,15 +656,45 @@ class PersonalExplorerAgent:
         self._save_thoughts()
 
     def _recall_thoughts(self, text: str) -> list[dict]:
-        """把与当前话题相关的念头召回（按共同 bigram 数排序）。"""
+        """召回与当前话题相关的念头：先粗筛（bigram），再用 LLM 精筛语义。"""
+        if not self.thoughts:
+            return []
         text_tokens = _tokenize(text)
-        scored: list[tuple[int, dict]] = []
+        candidates: list[dict] = []
         for t in self.thoughts:
-            overlap = len(text_tokens & _tokenize(t.get("text", "")))
-            if overlap >= 1:
-                scored.append((overlap, t))
-        scored.sort(key=lambda x: -x[0])
-        return [t for _, t in scored[:3]]
+            if len(text_tokens & _tokenize(t.get("text", ""))) >= 1:
+                candidates.append(t)
+        if not candidates:
+            return []
+        if self.llm.enabled:
+            return self._llm_filter_thoughts(text, candidates)
+        return candidates[:3]
+
+    def _llm_filter_thoughts(self, text: str, candidates: list[dict]) -> list[dict]:
+        """用 LLM 判断候选念头里哪些和当前话题语义相关（而非字面重合）。"""
+        items = "\n".join(f"{i}. {t.get('text', '')}" for i, t in enumerate(candidates))
+        prompt = (
+            "下面是用户当前说的话，以及他之前记下的一些念头。\n"
+            "请判断哪些念头和当前话题「语义相关」（不是字面重合，而是真正相关）。\n"
+            "只输出相关念头的编号，用 JSON 数组，例如 [0,2]；没有相关就输出 []。\n\n"
+            f"用户当前说：{text[:200]}\n\n"
+            f"候选念头：\n{items}\n\n"
+            "只输出 JSON 数组，不要其他文字。"
+        )
+        try:
+            raw = self.llm.chat([{"role": "user", "content": prompt}])
+            data = self._extract_json(raw)
+            if isinstance(data, list):
+                idxs: list[int] = []
+                for x in data:
+                    try:
+                        idxs.append(int(x))
+                    except (TypeError, ValueError):
+                        continue
+                return [candidates[i] for i in idxs if 0 <= i < len(candidates)][:3]
+        except Exception:
+            pass
+        return candidates[:3]
 
     def _system_prompt(self) -> str:
         p = self.profile.snapshot()

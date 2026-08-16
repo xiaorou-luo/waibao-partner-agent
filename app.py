@@ -570,11 +570,11 @@ st.divider()
 
 
 # ---- 主动提醒（用户开启后，进入页面主动摆出念头） --------------------
-if agent.notify_enabled and agent.thoughts:
+_reminders = [t for t in agent.thoughts if t.get("remind")]
+if agent.notify_enabled and _reminders:
     _type_cn2 = {"rule": "规则", "todo": "待办", "idea": "灵感", "memo": "备忘"}
-    _recent = list(reversed(agent.thoughts[-8:]))
     st.markdown("**🔔 想起来了** —— 你之前记下的这些，现在可能用得上：")
-    for _t in _recent:
+    for _t in reversed(_reminders[-8:]):
         st.markdown(
             f"- [{_type_cn2.get(_t.get('type', 'memo'), '备忘')}] {_t.get('text', '')}"
         )
