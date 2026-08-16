@@ -79,6 +79,7 @@ class PersonalExplorerAgent:
         self.portrait_file = self.storage_dir / "portrait.json"
         self.thoughts_file = self.storage_dir / "thoughts.json"
         self.thoughts: list[dict] = []
+        self.notify_enabled: bool = False
         self._process_note: str = ""
 
         self._load_persistent_state()
@@ -117,6 +118,7 @@ class PersonalExplorerAgent:
                 data = json.loads(self.portrait_file.read_text(encoding="utf-8"))
                 self.profile.portrait = data.get("text", "")
                 self.profile.portrait_enabled = bool(data.get("enabled", True))
+                self.notify_enabled = bool(data.get("notify_enabled", False))
             except (json.JSONDecodeError, OSError):
                 pass
         if self.thoughts_file.exists():
@@ -602,7 +604,11 @@ class PersonalExplorerAgent:
         self.portrait_file.parent.mkdir(parents=True, exist_ok=True)
         self.portrait_file.write_text(
             json.dumps(
-                {"text": self.profile.portrait, "enabled": self.profile.portrait_enabled},
+                {
+                    "text": self.profile.portrait,
+                    "enabled": self.profile.portrait_enabled,
+                    "notify_enabled": self.notify_enabled,
+                },
                 ensure_ascii=False,
                 indent=2,
             ),

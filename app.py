@@ -336,6 +336,18 @@ with st.sidebar:
         else:
             st.warning("先写一句话再记下")
 
+    _nt = st.toggle(
+        "🔔 主动提醒",
+        value=agent.notify_enabled,
+        key="notify_toggle",
+        help="打开后，每次进入页面会把记下的念头主动摆出来；关闭则只记录、不打扰。",
+    )
+    if _nt != agent.notify_enabled:
+        agent.notify_enabled = _nt
+        if hasattr(agent, "_save_portrait"):
+            agent._save_portrait()
+        st.rerun()
+
     with st.expander("👤 我的画像", expanded=True):
         _p = agent.profile.snapshot()
         _cog, _exp, _dom, _col = (
@@ -555,6 +567,18 @@ with _tab_thoughts:
 
 
 st.divider()
+
+
+# ---- 主动提醒（用户开启后，进入页面主动摆出念头） --------------------
+if agent.notify_enabled and agent.thoughts:
+    _type_cn2 = {"rule": "规则", "todo": "待办", "idea": "灵感", "memo": "备忘"}
+    _recent = list(reversed(agent.thoughts[-8:]))
+    st.markdown("**🔔 想起来了** —— 你之前记下的这些，现在可能用得上：")
+    for _t in _recent:
+        st.markdown(
+            f"- [{_type_cn2.get(_t.get('type', 'memo'), '备忘')}] {_t.get('text', '')}"
+        )
+    st.divider()
 
 
 # ---- 主聊天区（输入框固定底部） --------------------------------------
