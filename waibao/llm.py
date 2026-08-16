@@ -160,6 +160,12 @@ class LLMAdapter:
         except (KeyError, IndexError, TypeError) as exc:
             raise RuntimeError(f"LLM 返回格式异常：{body}") from exc
 
+    def chat(self, messages: list[dict[str, str]]) -> str:
+        """非流式完整回复（用于摘要等内部任务）。"""
+        if not self.enabled:
+            raise NotImplementedError("未配置 LLM API Key。")
+        return self._chat(messages)
+
     def chat_stream(self, messages: list[dict[str, str]]):
         """流式调用：逐段产出文本（ChatGPT 式打字效果）。"""
         if not self.enabled:

@@ -64,6 +64,8 @@ class PersonalExplorerAgent:
         self.resume_offered_for: str | None = None
         self.history: list[dict[str, str]] = []
         self.history_file = self.storage_dir / "conversation_history.json"
+        self.summary: str = ""
+        self.summary_file = self.storage_dir / "conversation_summary.txt"
 
         self._load_persistent_state()
         self.interface.profile_provider = lambda: self.profile.profile
@@ -89,6 +91,8 @@ class PersonalExplorerAgent:
                 self.history = json.loads(self.history_file.read_text(encoding="utf-8"))
             except (json.JSONDecodeError, OSError):
                 self.history = []
+        if self.summary_file.exists():
+            self.summary = self.summary_file.read_text(encoding="utf-8").strip()
 
     # ---- 命令入口（规格 5.3 / 5.4） ------------------------------------
     def handle(self, text: str) -> None:
@@ -158,6 +162,8 @@ class PersonalExplorerAgent:
         messages: list[dict[str, str]] = [
             {"role": "system", "content": self._system_prompt()}
         ]
+        if self.summary:
+            messages.append({"role": "system", "content": "以下是更早对话的要点摘要（已压缩，供你衔接上下文）：\n" + self.summary})
         memory = self._retrieve_memory(text)
         if memory:
             messages.append({"role": "system", "content": memory})
@@ -216,8 +222,43 @@ class PersonalExplorerAgent:
         if reply:
             self.history.append({"role": "assistant", "content": reply})
         self._remember_turn(user_text, reply)
+        self._maybe_summarize()
         self._save_history()
         self.evolution.save_profile(self.profile)
+
+    def _maybe_summarize(self) -> None:
+        """历史过长时，把更早的对话压缩成摘要，避免丢上下文。"""
+        if len(self.history) <= 40:
+            return
+        old = self.history[:-40]
+        self.history = self.history[-40:]
+        new_summary = self._summarize(old)
+        if new_summary:
+            self.summary = new_summary
+            self._save_summary()
+
+    def _summarize(self, messages: list[dict[str, str]]) -> str:
+        if not self.llm.enabled:
+            return "；".join(m.get("content", "")[:40] for m in messages[:3])
+        convo = "\n".join(
+            f"{'用户' if m['role'] == 'user' else 'AI'}：{m['content'][:200]}" for m in messages
+        )
+        try:
+            return self.llm.chat([
+                {
+                    "role": "system",
+                    "content": "你是对话摘要器。把下面的历史对话压缩成 3-5 条要点，"
+                               "保留用户偏好、已讨论的主题、未完成事项。只输出要点。",
+                },
+                {"role": "user", "content": convo},
+            ]).strip()
+        except Exception:
+            return ""
+
+    def _save_summary(self) -> None:
+        if self.summary:
+            self.summary_file.parent.mkdir(parents=True, exist_ok=True)
+            self.summary_file.write_text(self.summary, encoding="utf-8")
 
     def _remember_turn(self, text: str, reply: str) -> None:
         """把有价值的对话轮次记入情景记忆，供以后检索（过滤掉「好/继续」等噪音）。"""

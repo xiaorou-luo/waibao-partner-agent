@@ -22,11 +22,25 @@ st.set_page_config(page_title="外脑伙伴", page_icon="🧠", layout="wide")
 
 # 部署到 Streamlit Cloud 时，从平台 Secrets 读取密钥（本地则用 .env）
 try:
-    for _key in ("LLM_PROVIDER", "LLM_API_KEY", "LLM_MODEL", "TAVILY_API_KEY"):
+    for _key in ("LLM_PROVIDER", "LLM_API_KEY", "LLM_MODEL", "TAVILY_API_KEY", "ACCESS_PASSWORD"):
         if _key in st.secrets:
             os.environ.setdefault(_key, str(st.secrets[_key]))
 except Exception:
     pass
+
+# 可选访问密码：公开部署时防止陌生人滥用你的额度
+_pwd = os.environ.get("ACCESS_PASSWORD", "")
+if _pwd and not st.session_state.get("_authed"):
+    st.title("🔒 外脑伙伴")
+    st.markdown("这是一个受保护的演示，请输入访问密码。")
+    _inp = st.text_input("访问密码", type="password")
+    if st.button("进入", type="primary"):
+        if _inp == _pwd:
+            st.session_state["_authed"] = True
+            st.rerun()
+        else:
+            st.error("密码不对")
+    st.stop()
 
 
 @st.cache_resource
@@ -60,7 +74,17 @@ with st.sidebar:
         else "LLM：未配置（规则引擎）"
     )
     st.subheader("我的画像")
-    st.text(agent.profile.summary())
+    _p = agent.profile.snapshot()
+    _cog, _exp, _dom, _col = _p["cognition"], _p["expression"], _p["domain"], _p["collaboration"]
+    st.markdown(f"**主领域**：{_dom['domain_primary']}　**次领域**：{_dom['domain_secondary']}")
+    st.markdown(f"**语气**：{_exp['output_tone']}")
+    st.caption("宏观优先")
+    st.progress(_cog["thinking_macro_first"])
+    st.caption("结构化程度")
+    st.progress(_exp["structure_density"])
+    st.caption("举例偏好")
+    st.progress(_exp["example_preference"])
+    st.caption("红线：" + "、".join(_p["value_red_lines"]))
     st.divider()
     if st.button("清空对话记录"):
         agent.history = []
