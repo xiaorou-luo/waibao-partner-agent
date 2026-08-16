@@ -323,6 +323,19 @@ with st.sidebar:
         else "LLM：未配置（规则引擎）"
     )
 
+    _tv = st.text_input(
+        "💡 记一下",
+        key="thought_input",
+        placeholder="念头 / 规则 / 备忘，一句话就行",
+    )
+    if st.button("记下", key="thought_add", use_container_width=True):
+        if _tv.strip():
+            agent.add_thought(_tv)
+            st.session_state["thought_input"] = ""
+            st.rerun()
+        else:
+            st.warning("先写一句话再记下")
+
     with st.expander("👤 我的画像", expanded=True):
         _p = agent.profile.snapshot()
         _cog, _exp, _dom, _col = (
@@ -434,8 +447,8 @@ if _reset_top:
 
 
 # ---- 功能区页签 --------------------------------------------------------
-_tab_search, _tab_history, _tab_learn, _tab_tools = st.tabs(
-    ["🔍 联网搜索", "📜 历史对话", "📚 学习记录", "📁 文件工具"]
+_tab_search, _tab_history, _tab_learn, _tab_tools, _tab_thoughts = st.tabs(
+    ["🔍 联网搜索", "📜 历史对话", "📚 学习记录", "📁 文件工具", "💡 念头"]
 )
 
 with _tab_search:
@@ -521,6 +534,24 @@ with _tab_tools:
         "· `搜索 xxx` —— 联网搜索\n"
         "· `运行 xxx` —— 执行命令（本机需开启）"
     )
+
+with _tab_thoughts:
+    _thoughts = agent.thoughts
+    if not _thoughts:
+        st.info("还没有记下的念头。在左侧「💡 记一下」里随手丢一句话，它会在合适的对话里替你想起来。")
+    else:
+        _type_cn = {"rule": "规则", "todo": "待办", "idea": "灵感", "memo": "备忘"}
+        st.caption(f"共 {len(_thoughts)} 条")
+        for _t in reversed(_thoughts):
+            _c1, _c2 = st.columns([10, 1])
+            with _c1:
+                st.markdown(
+                    f"**{_type_cn.get(_t.get('type', 'memo'), '备忘')}** · {_t.get('text', '')}"
+                )
+            with _c2:
+                if st.button("🗑", key=f"del_{_t.get('id')}", help="删除这条"):
+                    agent.delete_thought(_t.get("id"))
+                    st.rerun()
 
 
 st.divider()

@@ -22,7 +22,13 @@ from uuid import uuid4
 from . import tools
 from .interaction import ConsoleInterface
 from .llm import LLMAdapter, load_dotenv
-from .memory import EpisodicMemory, LongTermMemory, MemoryEvolutionSystem, WorkingMemory
+from .memory import (
+    EpisodicMemory,
+    LongTermMemory,
+    MemoryEvolutionSystem,
+    WorkingMemory,
+    _tokenize,
+)
 from .profile import ProfileSystem
 from .task_engine import INTENT_LABELS, TaskFrameworkEngine, TaskSpec
 
@@ -71,6 +77,8 @@ class PersonalExplorerAgent:
         self.sessions_file = self.storage_dir / "conversation_sessions.json"
         self.learning_log_file = self.storage_dir / "learning_log.json"
         self.portrait_file = self.storage_dir / "portrait.json"
+        self.thoughts_file = self.storage_dir / "thoughts.json"
+        self.thoughts: list[dict] = []
         self._process_note: str = ""
 
         self._load_persistent_state()
@@ -111,6 +119,11 @@ class PersonalExplorerAgent:
                 self.profile.portrait_enabled = bool(data.get("enabled", True))
             except (json.JSONDecodeError, OSError):
                 pass
+        if self.thoughts_file.exists():
+            try:
+                self.thoughts = json.loads(self.thoughts_file.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                self.thoughts = []
 
     # ---- 命令入口（规格 5.3 / 5.4） ------------------------------------
     def handle(self, text: str) -> None:
@@ -207,6 +220,14 @@ class PersonalExplorerAgent:
         memory = self._retrieve_memory(text)
         if memory:
             messages.append({"role": "system", "content": memory})
+        recalled = self._recall_thoughts(text)
+        if recalled:
+            lines = [
+                "以下是用户之前随手记下的、与当前话题可能相关的念头，"
+                "如果确实相关，请在回复里自然地提起（不要生硬逐条复述）："
+            ]
+            lines += [f"- {t['text']}" for t in recalled]
+            messages.append({"role": "system", "content": "\n".join(lines)})
         messages.extend(self.history[-24:])
         messages.append({"role": "user", "content": user_content})
         self._process_note = self._build_process_note(tool_note, memory)
@@ -587,6 +608,55 @@ class PersonalExplorerAgent:
             ),
             encoding="utf-8",
         )
+
+    # ---- 念头收件箱（痛点：灵感转瞬即逝） ----------------------------
+    def _save_thoughts(self) -> None:
+        self.thoughts_file.parent.mkdir(parents=True, exist_ok=True)
+        self.thoughts_file.write_text(
+            json.dumps(self.thoughts[-500:], ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+    @staticmethod
+    def _classify_thought(text: str) -> str:
+        """把念头粗略归为 规则/待办/灵感/备忘。"""
+        if any(w in text for w in ("不要", "别", "禁止", "记得", "一定要", "必须", "应该")):
+            return "rule"
+        if any(w in text for w in ("要做", "待办", "明天", "下次", "记得做")):
+            return "todo"
+        if any(w in text for w in ("想做", "想试试", "也许可以", "灵感", "也许")):
+            return "idea"
+        return "memo"
+
+    def add_thought(self, text: str) -> dict | None:
+        """接住一条念头，自动归类并保存。"""
+        text = (text or "").strip()
+        if not text:
+            return None
+        thought = {
+            "id": uuid4().hex[:12],
+            "text": text,
+            "type": self._classify_thought(text),
+            "created_at": _now(),
+        }
+        self.thoughts.append(thought)
+        self._save_thoughts()
+        return thought
+
+    def delete_thought(self, thought_id: str) -> None:
+        self.thoughts = [t for t in self.thoughts if t.get("id") != thought_id]
+        self._save_thoughts()
+
+    def _recall_thoughts(self, text: str) -> list[dict]:
+        """把与当前话题相关的念头召回（按共同 bigram 数排序）。"""
+        text_tokens = _tokenize(text)
+        scored: list[tuple[int, dict]] = []
+        for t in self.thoughts:
+            overlap = len(text_tokens & _tokenize(t.get("text", "")))
+            if overlap >= 1:
+                scored.append((overlap, t))
+        scored.sort(key=lambda x: -x[0])
+        return [t for _, t in scored[:3]]
 
     def _system_prompt(self) -> str:
         p = self.profile.snapshot()
