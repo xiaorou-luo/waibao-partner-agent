@@ -119,6 +119,25 @@ def sign_in(email: str, password: str) -> dict:
     }
 
 
+def reset_password(email: str) -> dict:
+    """发送密码重置邮件。返回 {ok, error}。"""
+    url, _ = _cfg()
+    req = urllib.request.Request(
+        f"{url}/auth/v1/recover",
+        data=json.dumps({"email": email.strip()}).encode("utf-8"),
+        headers=_headers(),
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            resp.read()
+        return {"ok": True}
+    except urllib.error.HTTPError as exc:
+        return {"ok": False, "error": _parse_error(exc.read().decode("utf-8", "replace"))}
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": f"无法连接 Supabase：{exc}"}
+
+
 def _rest(
     method: str,
     path: str,

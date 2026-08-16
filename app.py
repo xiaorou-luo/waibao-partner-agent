@@ -156,6 +156,17 @@ if _auth_enabled and not st.session_state.get("auth_user"):
                     st.rerun()
                 else:
                     st.error(_res.get("error", "登录失败"))
+        with st.expander("忘记密码？"):
+            _reset_email = st.text_input("注册邮箱", key="reset_email")
+            if st.button("发送重置邮件", use_container_width=True):
+                if not _reset_email:
+                    st.warning("请输入注册邮箱")
+                else:
+                    _r = db.reset_password(_reset_email)
+                    if _r.get("ok"):
+                        st.success("重置邮件已发送，请查收（可能延迟几分钟，也请看看垃圾箱）。")
+                    else:
+                        st.error(_r.get("error", "发送失败"))
     with _tab_signup:
         _email2 = st.text_input("邮箱", key="signup_email")
         _pwd2 = st.text_input("密码（至少 6 位）", type="password", key="signup_pwd")
