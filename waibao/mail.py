@@ -45,10 +45,10 @@ def _get_body(msg: Message) -> str:
         return ""
 
 
-def fetch_inspirations(limit: int = 20) -> list[str]:
+def fetch_inspirations(user: str = "", pwd: str = "", limit: int = 20) -> list[str]:
     """读取收件箱里「自己发给自己」的未读邮件，返回文本，并标记已读。"""
-    user = os.environ.get("MAIL_USER", "").strip()
-    pwd = os.environ.get("MAIL_PASS", "").strip()
+    user = (user or os.environ.get("MAIL_USER", "")).strip()
+    pwd = (pwd or os.environ.get("MAIL_PASS", "")).strip()
     if not user or not pwd:
         return []
     results: list[str] = []

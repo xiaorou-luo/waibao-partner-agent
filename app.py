@@ -337,13 +337,22 @@ with st.sidebar:
         else:
             st.warning("先写一句话再记下")
 
-    if mail.configured():
-        if st.button(
-            "📥 同步邮件",
-            key="mail_sync",
-            use_container_width=True,
-            help="从邮箱拉取你发给自己的一句话灵感邮件",
-        ):
+    with st.expander("📧 邮箱配置", expanded=False):
+        if agent.mail_user:
+            st.caption("当前邮箱：" + agent.mail_user)
+        _mu = st.text_input("邮箱地址", key="mail_user_in", placeholder="例如 xxxx@qq.com")
+        _mp = st.text_input("授权码（16位）", key="mail_pass_in", type="password")
+        if st.button("保存邮箱配置", use_container_width=True):
+            if _mu.strip() and _mp.strip():
+                agent.set_mail_config(_mu, _mp)
+                st.toast("邮箱配置已保存")
+                st.rerun()
+            else:
+                st.warning("邮箱和授权码都要填")
+        st.caption("给自己发邮件记灵感，再点下面的「同步邮件」。")
+
+    if agent.mail_user or mail.configured():
+        if st.button("📥 同步邮件", key="mail_sync", use_container_width=True):
             _n = agent.sync_mail_thoughts()
             if _n:
                 st.toast(f"已同步 {_n} 条念头")

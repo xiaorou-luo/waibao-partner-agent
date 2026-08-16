@@ -80,6 +80,9 @@ class PersonalExplorerAgent:
         self.thoughts_file = self.storage_dir / "thoughts.json"
         self.thoughts: list[dict] = []
         self.notify_enabled: bool = False
+        self.mail_config_file = self.storage_dir / "mail_config.json"
+        self.mail_user: str = ""
+        self.mail_pass: str = ""
         self._process_note: str = ""
 
         self._load_persistent_state()
@@ -126,6 +129,13 @@ class PersonalExplorerAgent:
                 self.thoughts = json.loads(self.thoughts_file.read_text(encoding="utf-8"))
             except (json.JSONDecodeError, OSError):
                 self.thoughts = []
+        if self.mail_config_file.exists():
+            try:
+                data = json.loads(self.mail_config_file.read_text(encoding="utf-8"))
+                self.mail_user = data.get("user", "")
+                self.mail_pass = data.get("pass", "")
+            except (json.JSONDecodeError, OSError):
+                pass
 
     # ---- 命令入口（规格 5.3 / 5.4） ------------------------------------
     def handle(self, text: str) -> None:
@@ -670,11 +680,21 @@ class PersonalExplorerAgent:
                 break
         self._save_thoughts()
 
+    def set_mail_config(self, user: str, pwd: str) -> None:
+        """保存当前用户自己的邮箱配置（账号模式下各用户独立）。"""
+        self.mail_user = (user or "").strip()
+        self.mail_pass = (pwd or "").strip()
+        self.mail_config_file.parent.mkdir(parents=True, exist_ok=True)
+        self.mail_config_file.write_text(
+            json.dumps({"user": self.mail_user, "pass": self.mail_pass}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
     def sync_mail_thoughts(self) -> int:
         """从邮箱拉取灵感邮件转成念头，返回新增数量。"""
         from . import mail
 
-        texts = mail.fetch_inspirations()
+        texts = mail.fetch_inspirations(self.mail_user, self.mail_pass)
         added = 0
         for text in texts:
             text = (text or "").strip()
