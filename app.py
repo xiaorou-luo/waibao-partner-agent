@@ -228,12 +228,33 @@ with st.sidebar:
 
     with st.expander("🧹 数据管理", expanded=False):
         if st.button("🗑 清空对话记录", key="clear_side", use_container_width=True):
+            agent.archive_current_session()
             agent.history = []
             agent._save_history()
             st.session_state.messages = []
             st.rerun()
         if st.button("🔄 重置全部记忆", key="reset_side", use_container_width=True):
             _confirm_reset()
+
+    with st.expander("📜 历史对话", expanded=False):
+        _sessions = agent.list_sessions()
+        if not _sessions:
+            st.caption("还没有归档的对话。点「清空对话」会把当前对话自动保存到这里。")
+        else:
+            _rev = list(reversed(_sessions))
+            _labels = [f"{s.get('title', '未命名')}" for s in _rev]
+            _pick = st.selectbox("选择一段对话", _labels, key="hist_pick")
+            for _s in _rev:
+                if _s.get("title", "未命名") == _pick:
+                    st.caption(
+                        f"{_s.get('created_at', '')} · {_s.get('message_count', 0)} 条消息"
+                    )
+                    st.markdown("**总结**\n" + _s.get("summary", ""))
+                    with st.expander("查看完整对话"):
+                        for _m in _s.get("messages", []):
+                            _role = "你" if _m.get("role") == "user" else "外脑伙伴"
+                            st.markdown(f"**{_role}**：{_m.get('content', '')}")
+                    break
 
     st.divider()
     st.caption(
@@ -271,6 +292,7 @@ with _top1:
 with _top2:
     _reset_top = st.button("🔄 重置全部", key="reset_top", use_container_width=True)
 if _clear_top:
+    agent.archive_current_session()
     agent.history = []
     agent._save_history()
     st.session_state.messages = []

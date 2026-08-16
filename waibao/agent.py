@@ -68,6 +68,7 @@ class PersonalExplorerAgent:
         self.history_file = self.storage_dir / "conversation_history.json"
         self.summary: str = ""
         self.summary_file = self.storage_dir / "conversation_summary.txt"
+        self.sessions_file = self.storage_dir / "conversation_sessions.json"
         self._process_note: str = ""
 
         self._load_persistent_state()
@@ -374,6 +375,75 @@ class PersonalExplorerAgent:
         if self.summary:
             self.summary_file.parent.mkdir(parents=True, exist_ok=True)
             self.summary_file.write_text(self.summary, encoding="utf-8")
+
+    # ---- 对话归档（自动标题 + 总结，供「历史对话」查看） ----------------
+    def list_sessions(self) -> list[dict]:
+        """读取已归档的历史对话列表。"""
+        if not self.sessions_file.exists():
+            return []
+        try:
+            data = json.loads(self.sessions_file.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return []
+        return data if isinstance(data, list) else []
+
+    def _generate_title_summary(self, messages: list[dict[str, str]]) -> tuple[str, str]:
+        """为一段对话生成 ≤15 字标题 + 一句话总结；LLM 不可用时用规则兜底。"""
+        first_user = next(
+            (m.get("content", "") for m in messages if m.get("role") == "user"), ""
+        )
+        fallback_title = first_user.strip()[:15] or "新对话"
+        fallback_summary = f"共 {len(messages)} 条消息，从「{first_user[:40]}」开始。"
+        if not self.llm.enabled:
+            return fallback_title, fallback_summary
+
+        convo = "\n".join(
+            f"{'用户' if m.get('role') == 'user' else 'AI'}：{m.get('content', '')[:150]}"
+            for m in messages[-20:]
+        )
+        prompt = (
+            "请根据下面这段对话做两件事：\n"
+            "1. 生成一个标题，不超过 15 个字，准确概括主题；\n"
+            "2. 用一句话（60 字以内）总结这段对话做了什么。\n\n"
+            "请严格按下面格式回复，不要输出任何其他内容：\n"
+            "标题：<15字以内>\n"
+            "总结：<一句话>\n\n"
+            "对话内容：\n" + convo
+        )
+        try:
+            raw = self.llm.chat([{"role": "user", "content": prompt}])
+        except Exception:
+            return fallback_title, fallback_summary
+
+        title, summary = fallback_title, fallback_summary
+        for line in raw.splitlines():
+            s = line.strip()
+            if s.startswith("标题"):
+                title = s.split("：", 1)[-1].split(":", 1)[-1].strip() or fallback_title
+            elif s.startswith("总结"):
+                summary = s.split("：", 1)[-1].split(":", 1)[-1].strip() or fallback_summary
+        return (title.strip()[:15] or fallback_title), (summary.strip() or fallback_summary)
+
+    def archive_current_session(self) -> dict | None:
+        """把当前对话生成标题+总结后归档；不修改 self.history（由调用方决定清空）。"""
+        if not self.history:
+            return None
+        title, summary = self._generate_title_summary(self.history)
+        rec = {
+            "id": uuid4().hex[:12],
+            "title": title,
+            "summary": summary,
+            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "message_count": len(self.history),
+            "messages": self.history[-50:],
+        }
+        sessions = self.list_sessions()
+        sessions.append(rec)
+        self.sessions_file.parent.mkdir(parents=True, exist_ok=True)
+        self.sessions_file.write_text(
+            json.dumps(sessions, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        return rec
 
     def _remember_turn(self, text: str, reply: str) -> None:
         """把有价值的对话轮次记入情景记忆，供以后检索（过滤掉「好/继续」等噪音）。"""
