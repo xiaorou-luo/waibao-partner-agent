@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import uuid
 
 import streamlit as st
 
@@ -119,12 +120,27 @@ if _pwd and not st.session_state.get("_authed"):
     st.stop()
 
 
-@st.cache_resource
-def get_agent() -> PersonalExplorerAgent:
-    return PersonalExplorerAgent(storage_dir="waibao_data")
+def _is_cloud_deployment() -> bool:
+    """判断是否运行在 Streamlit Cloud（云端多人访问需要会话隔离）。"""
+    return os.path.exists("/mount/src")
 
 
-agent = get_agent()
+def _get_agent() -> PersonalExplorerAgent:
+    """按场景选择存储目录：
+
+    - 云端（公开链接）：每个浏览器会话一个独立目录，互不看到彼此的聊天记录。
+    - 本机：固定目录，保留你的画像和跨重启对话历史。
+    """
+    if _is_cloud_deployment():
+        if "session_id" not in st.session_state:
+            st.session_state["session_id"] = uuid.uuid4().hex[:12]
+        storage_dir = f"waibao_data/{st.session_state['session_id']}"
+    else:
+        storage_dir = "waibao_data"
+    return PersonalExplorerAgent(storage_dir=storage_dir)
+
+
+agent = _get_agent()
 
 
 # ---- 首次画像初始化 ---------------------------------------------------
@@ -154,7 +170,6 @@ def _confirm_reset() -> None:
         st.session_state.clear()
         if _keep_auth:
             st.session_state["_authed"] = True
-        st.cache_resource.clear()
         st.rerun()
 
 
