@@ -71,67 +71,67 @@ st.markdown(
     """
 <style>
 .stApp {
-    background: #f7f8fb;
+    background: #ffffff;
 }
 html, body, [class*="css"] {
     font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
                  "Microsoft YaHei", "Segoe UI", sans-serif;
-    color: #1f2430;
+    color: #262730;
 }
-/* 顶部品牌栏 */
+/* 顶部标题栏：极简，无重色 */
 .waibao-hero {
-    background: linear-gradient(120deg, #4f46e5 0%, #6366f1 55%, #818cf8 100%);
-    color: #ffffff;
-    padding: 0.7rem 1.1rem;
-    border-radius: 12px;
-    margin-bottom: 0.65rem;
-    box-shadow: 0 10px 28px rgba(79, 70, 229, 0.22);
+    background: transparent;
+    padding: 0.3rem 0.2rem 0.65rem 0.2rem;
+    border-radius: 0;
+    margin-bottom: 0.35rem;
+    box-shadow: none;
+    border-bottom: 1px solid #f0f0f2;
 }
 .waibao-hero h1 {
-    color: #ffffff;
-    font-size: 1.12rem;
+    color: #262730;
+    font-size: 1.28rem;
     margin: 0;
-    letter-spacing: 0.3px;
+    letter-spacing: 0;
 }
 .waibao-hero .sub {
-    color: #e0e7ff;
-    font-size: 0.8rem;
+    color: #9a9fa8;
+    font-size: 0.82rem;
     font-weight: 400;
     margin-left: 0.5rem;
 }
 .waibao-hero .badges {
-    margin-top: 0.35rem;
+    margin-top: 0.4rem;
 }
 .waibao-badge {
     display: inline-block;
-    background: rgba(255, 255, 255, 0.18);
-    border: 1px solid rgba(255, 255, 255, 0.28);
-    color: #ffffff;
+    background: #f3f4f6;
+    border: 1px solid #e9eaee;
+    color: #6b7280;
     padding: 0.12rem 0.6rem;
     border-radius: 999px;
     font-size: 0.7rem;
     margin-right: 0.35rem;
 }
-/* 聊天气泡 */
+/* 聊天气泡：极简，去边框阴影 */
 [data-testid="stChatMessage"] {
-    background: #ffffff;
-    border: 1px solid #e8eaf0;
-    border-radius: 14px;
-    padding: 0.5rem 0.7rem;
-    margin-bottom: 0.55rem;
-    box-shadow: 0 2px 8px rgba(31, 36, 48, 0.05);
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 0.35rem 0.05rem;
+    margin-bottom: 0.3rem;
+    box-shadow: none;
 }
 /* 输入框 */
 [data-testid="stChatInput"] {
-    border-top: 1px solid #e2e8f0;
+    border-top: 1px solid #f0f0f2;
 }
 [data-testid="stChatInput"] textarea {
-    border-radius: 12px;
+    border-radius: 8px;
 }
-/* 按钮 */
+/* 按钮：柔和圆角 */
 .stButton > button {
-    border-radius: 10px;
-    font-weight: 600;
+    border-radius: 8px;
+    font-weight: 500;
 }
 </style>
 """,
