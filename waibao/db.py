@@ -92,13 +92,22 @@ def sign_up(email: str, password: str) -> dict:
         return {"ok": False, "error": str(exc)}
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": f"无法连接 Supabase：{exc}"}
-    user = data.get("user", {}) or {}
+    # 兼容 Supabase 新旧两种返回结构：
+    # - 关闭邮箱验证时：{access_token, refresh_token, user: {...}}
+    # - 开启邮箱验证时：直接返回 user 对象（id 在顶层，带 confirmation_sent_at）
+    user = data.get("user") or data
+    user_id = user.get("id", "") if isinstance(user, dict) else ""
+    email_confirmed = bool(
+        (user.get("email_confirmed_at") or user.get("confirmed_at"))
+        if isinstance(user, dict)
+        else False
+    )
     return {
         "ok": True,
-        "user_id": user.get("id", ""),
+        "user_id": user_id,
         "access_token": data.get("access_token", ""),
         "refresh_token": data.get("refresh_token", ""),
-        "email_confirmed": bool(user.get("email_confirmed_at") or user.get("confirmed_at")),
+        "email_confirmed": email_confirmed,
     }
 
 
